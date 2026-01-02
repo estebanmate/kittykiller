@@ -31,6 +31,10 @@ android {
         jvmTarget = "1.8"
     }
 
+    buildFeatures {
+        viewBinding = true
+    }
+
     // SOLUCIÓN AL ERROR DE LIBRERÍA NO ENCONTRADA
     packaging {
         jniLibs {
