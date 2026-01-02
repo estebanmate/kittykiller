@@ -6,5 +6,5 @@ data class Pregunta(
     val opcionB: String,
     val opcionC: String,
     val opcionD: String,
-    val respuestaCorrecta: String // "a", "b", "c" o "d"
+    val solucion: String // Antes se llamaba 'respuestaCorrecta', ahora es 'solucion'
 )

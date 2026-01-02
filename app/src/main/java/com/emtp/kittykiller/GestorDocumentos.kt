@@ -6,52 +6,52 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
+// --- CORRECCIÓN ---
+// Sacamos el typealias fuera de la clase para evitar el error "nested type aliases".
+// Ahora es accesible en todo el archivo sin problemas.
+typealias TipoDoc = ProcesadorDocumentos.TipoDoc
+
 class GestorDocumentos(private val context: Context) {
 
     private val procesador = ProcesadorDocumentos(context)
 
-    // Callback modificado para devolver también errores si ocurren
+    // Callback modificado para manejar Éxito y Error
     fun clasificarYProcesar(
         uri: Uri,
         nombreArchivo: String,
         onResult: (String, TipoDoc) -> Unit,
         onError: (String) -> Unit
     ) {
-
-        // 1. Clasificación preliminar por nombre
-        val tipo = when {
-            nombreArchivo.startsWith("EXAMEN", ignoreCase = true) ||
-                    nombreArchivo.contains("TEST", ignoreCase = true) -> TipoDoc.TEST
-
-            nombreArchivo.startsWith("Tema", ignoreCase = true) -> TipoDoc.TEORIA
-            else -> TipoDoc.DESCONOCIDO
-        }
-
-        if (tipo == TipoDoc.DESCONOCIDO) {
-            onError("Documento no reconocido. Debe contener 'EXAMEN' o 'Tema' en el nombre.")
-            return
-        }
-
-        // 2. Delegar el procesamiento pesado a un hilo secundario (IO)
+        // Lanzamos en el hilo principal para poder actualizar la UI con el resultado,
+        // pero el procesador cambiará internamente a IO para no bloquear.
         CoroutineScope(Dispatchers.Main).launch {
             try {
-                // Llamamos a ProcesadorDocumentos (que ya maneja PDFBox, OCR y limpieza)
-                val resultado = procesador.procesarArchivo(uri, nombreArchivo) { progreso ->
-                    // Opcional: Podrías pasar este progreso a la UI si cambias la firma del callback
-                    android.util.Log.d("GestorDocs", progreso)
+                // 1. Clasificación preliminar (Test vs Teoría)
+                if (nombreArchivo.isBlank()) {
+                    onError("Nombre de archivo inválido.")
+                    return@launch
                 }
 
-                val (_, textoExtraido) = resultado
+                // 2. Procesamiento (Lectura, OCR automático, Limpieza de índices)
+                val resultado = procesador.procesarArchivo(uri, nombreArchivo) { mensajeProgreso ->
+                    // Log de progreso
+                    android.util.Log.d("GestorDocs", "Progreso: $mensajeProgreso")
+                }
 
-                // Usamos el tipo determinado por el nombre (más fiable para tu estructura de archivos)
-                // o el que devuelve el procesador si fuera más inteligente en el futuro.
-                onResult(textoExtraido, tipo)
+                val (tipoDetectado, textoExtraido) = resultado
+
+                // 3. Validación de contenido
+                if (textoExtraido.isBlank()) {
+                    onError("No se pudo extraer texto. El archivo podría estar vacío o protegido.")
+                    return@launch
+                }
+
+                // 4. Devolver resultado
+                onResult(textoExtraido, tipoDetectado)
 
             } catch (e: Exception) {
                 onError("Error procesando archivo: ${e.localizedMessage}")
             }
         }
     }
-
-    enum class TipoDoc { TEST, TEORIA, DESCONOCIDO }
 }

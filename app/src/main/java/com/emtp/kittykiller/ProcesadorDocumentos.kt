@@ -25,7 +25,7 @@ class ProcesadorDocumentos(private val context: Context) {
     enum class TipoDoc { TEST, TEORIA, DESCONOCIDO }
 
     init {
-        // Inicializar PDFBox al arrancar la clase
+        // Inicializar PDFBox (necesario para leer PDFs nativos)
         PDFBoxResourceLoader.init(context)
     }
 
@@ -35,10 +35,8 @@ class ProcesadorDocumentos(private val context: Context) {
         onProgress: (String) -> Unit
     ): Pair<TipoDoc, String> {
         return withContext(Dispatchers.IO) {
-            // Clasificación por nombre (Test vs Teoría)
             val tipo = determinarTipo(nombreArchivo)
             val extension = nombreArchivo.substringAfterLast('.', "").lowercase()
-
             val tempFile = crearArchivoTemporal(uri, extension)
             var texto = ""
 
@@ -58,11 +56,15 @@ class ProcesadorDocumentos(private val context: Context) {
                     else -> "Formato no soportado ($extension)"
                 }
 
-                // IMPORTANTE: Solo limpiamos (borramos portadas/índice) si es TEORÍA.
-                // Si es un TEST, necesitamos todo el contenido íntegro para detectar preguntas.
+                // LÓGICA DE LIMPIEZA ESPECÍFICA PARA TEORÍA
                 if (tipo == TipoDoc.TEORIA) {
-                    onProgress("Optimizando contenido para IA...")
-                    texto = limpiarContenidoTeoria(texto)
+                    if (extension == "docx" || extension == "doc") {
+                        onProgress("Documento Word detectado: Se procesará todo el contenido.")
+                        // No limpiamos DOCX, devolvemos todo tal cual
+                    } else {
+                        onProgress("Detectando inicio real del tema (saltando introducciones)...")
+                        texto = limpiarContenidoTeoriaPDF(texto)
+                    }
                 }
 
             } catch (e: Exception) {
@@ -72,98 +74,85 @@ class ProcesadorDocumentos(private val context: Context) {
                 // Borrar archivo temporal para no llenar el almacenamiento
                 if (tempFile.exists()) tempFile.delete()
             }
-
             Pair(tipo, texto)
         }
     }
 
-    // --- LECTURA DE PDF (Híbrida: Texto nativo + OCR) ---
+    // --- LECTURA DE PDF (Híbrida: Texto nativo + OCR si falla) ---
     private suspend fun leerPdfInteligente(file: File, onProgress: (String) -> Unit): String {
         var textoNativo = ""
 
         try {
             onProgress("Analizando estructura del PDF...")
             PDDocument.load(file).use { document ->
-                val paginas = document.numberOfPages
-                if (paginas > 10) onProgress("Extrayendo texto digital de $paginas páginas...")
-
                 val stripper = PDFTextStripper()
-                // Ordenar por posición evita que el texto salga desordenado en columnas
-                stripper.sortByPosition = true
+                stripper.sortByPosition = true // Importante para mantener orden de columnas
                 textoNativo = stripper.getText(document)
             }
         } catch (e: Exception) {
             Log.e("PDF", "Error lectura nativa", e)
         }
 
-        // --- LÓGICA DE DETECCIÓN DE ESCANEADO ---
-        // 1. Si el texto es muy corto (< 200 chars), es casi seguro una imagen.
-        // 2. Si tiene muchos símbolos de "desconocido" (), es un PDF mal codificado.
+        // Lógica de decisión: ¿Es texto real o una imagen/escaneado?
+        // 1. Si es muy corto (< 200 chars), seguro es imagen.
+        // 2. Si tiene muchos caracteres 'desconocidos' (), es basura de codificación.
         val esMuyCorto = textoNativo.trim().length < 200
-        val pareceBasura =
-            textoNativo.count { it == '\uFFFD' } > 20 // Carácter 'replacement' común en errores
+        val pareceBasura = textoNativo.count { it == '\uFFFD' } > 20
 
         if (esMuyCorto || pareceBasura) {
-            onProgress("Texto digital no detectado o ilegible. Activando OCR (Escaneo)...")
+            onProgress("Texto digital no legible. Activando Escáner OCR...")
             return realizarOCR(file, onProgress)
         }
 
         return textoNativo
     }
 
-    // --- MOTOR OCR (ML Kit) ---
+    // --- MOTOR OCR (Google ML Kit) ---
     private suspend fun realizarOCR(file: File, onProgress: (String) -> Unit): String {
         val textoCompleto = StringBuilder()
-        // Cliente de reconocimiento de texto
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
         try {
-            val fileDescriptor =
-                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-            val renderer = PdfRenderer(fileDescriptor)
-            val totalPaginas = renderer.pageCount
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                .use { fileDescriptor ->
+                    val renderer = PdfRenderer(fileDescriptor)
+                    val totalPaginas = renderer.pageCount
 
-            onProgress("Iniciando escaneo inteligente de $totalPaginas páginas...")
+                    onProgress("Iniciando escaneo de $totalPaginas páginas...")
 
-            for (i in 0 until totalPaginas) {
-                // Notificar progreso cada pocas páginas
-                if (i % 3 == 0 || i == totalPaginas - 1) {
-                    withContext(Dispatchers.Main) {
-                        onProgress("Escaneando página ${i + 1} de $totalPaginas...")
+                    for (i in 0 until totalPaginas) {
+                        if (i % 5 == 0 || i == totalPaginas - 1) {
+                            withContext(Dispatchers.Main) {
+                                onProgress("Escaneando página ${i + 1} de $totalPaginas...")
+                            }
+                        }
+
+                        // Renderizar página a imagen de alta calidad (escala x2)
+                        val page = renderer.openPage(i)
+                        val bitmap = Bitmap.createBitmap(
+                            page.width * 2,
+                            page.height * 2,
+                            Bitmap.Config.ARGB_8888
+                        )
+                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+
+                        // Procesar con ML Kit
+                        val image = InputImage.fromBitmap(bitmap, 0)
+                        val result = recognizer.process(image).await()
+                        textoCompleto.append(result.text).append("\n\n")
+
+                        page.close()
+                        bitmap.recycle() // Liberar memoria inmediatamente
                     }
+                    renderer.close()
                 }
-
-                // Renderizar página a imagen (Bitmap)
-                val page = renderer.openPage(i)
-                // Aumentamos la densidad (escala x2) para que ML Kit lea mejor la letra pequeña
-                val width = (page.width * 2).toInt()
-                val height = (page.height * 2).toInt()
-                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-
-                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-
-                // Procesar imagen con ML Kit
-                val image = InputImage.fromBitmap(bitmap, 0)
-                val result = recognizer.process(image).await() // .await() requiere corrutinas
-
-                textoCompleto.append(result.text).append("\n\n")
-
-                // Limpieza de memoria (CRÍTICO en bucles grandes)
-                page.close()
-                bitmap.recycle()
-            }
-
-            renderer.close()
-            fileDescriptor.close()
-
         } catch (e: Exception) {
             return "Error OCR: ${e.message}"
         }
-
         return textoCompleto.toString()
     }
 
-    // --- LECTURA WORD ---
+    // --- LECTURA WORD (Apache POI) ---
     private fun leerDocx(file: File): String {
         file.inputStream().use { fis ->
             val document = XWPFDocument(fis)
@@ -180,61 +169,56 @@ class ProcesadorDocumentos(private val context: Context) {
         }
     }
 
-    // --- LÓGICA DE NEGOCIO ---
+    // --- LIMPIEZA INTELIGENTE PARA PDFs (UCADEMY) ---
+    private fun limpiarContenidoTeoriaPDF(texto: String): String {
+        // 1. Eliminar cabeceras repetitivas
+        val textoSinCabeceras =
+            texto.replace(Regex("(?i)Ucademy|Manual Oposiciones|TCAE SERMAS|Bloque \\w+"), "")
+
+        // 2. Buscar Índice
+        val indices = listOf("ÍNDICE", "TABLA DE CONTENIDOS", "SUMARIO")
+        var posIndice = -1
+        for (idx in indices) {
+            posIndice = textoSinCabeceras.indexOf(idx, ignoreCase = true)
+            if (posIndice != -1) break
+        }
+
+        if (posIndice == -1) return textoSinCabeceras // Si no hay índice, devolvemos todo
+
+        // 3. Buscar inicio real DESPUÉS del índice + margen de seguridad
+        val textoPostIndice = textoSinCabeceras.substring(posIndice)
+        val saltoSeguridad =
+            minOf(3000, textoPostIndice.length) // Saltamos ~3000 chars (la lista de caps)
+
+        // Patrones de inicio: "1. Introducción", "TEMA 1", "UNIDAD DIDÁCTICA"
+        val patronesInicio = listOf(
+            Regex("\\n\\s*1\\.\\s+[A-ZÁÉÍÓÚÑ]", RegexOption.IGNORE_CASE),
+            Regex("TEMA\\s+\\d+", RegexOption.IGNORE_CASE),
+            Regex("UNIDAD\\s+DIDÁCTICA", RegexOption.IGNORE_CASE)
+        )
+
+        for (patron in patronesInicio) {
+            val match = patron.find(textoPostIndice, startIndex = saltoSeguridad)
+            if (match != null) {
+                Log.d("Procesador", "Inicio Teoría detectado en: ${match.value}")
+                return textoPostIndice.substring(match.range.first)
+            }
+        }
+
+        // Fallback: Cortar a lo bruto después del margen de seguridad
+        return textoPostIndice.substring(saltoSeguridad)
+    }
+
     private fun determinarTipo(nombre: String): TipoDoc {
         return when {
             nombre.contains("EXAMEN", ignoreCase = true) ||
                     nombre.contains("TEST", ignoreCase = true) ||
                     nombre.contains("OPE", ignoreCase = true) -> TipoDoc.TEST
 
-            nombre.contains("TEMA", ignoreCase = true) ||
-                    nombre.contains("TEMARIO", ignoreCase = true) ||
-                    nombre.contains("APUNTES", ignoreCase = true) -> TipoDoc.TEORIA
-
-            else -> TipoDoc.TEORIA // Por defecto
+            else -> TipoDoc.TEORIA
         }
     }
 
-    // --- LIMPIEZA DE TEORÍA ---
-    private fun limpiarContenidoTeoria(texto: String): String {
-        // Eliminar cabeceras repetitivas que confunden a la IA
-        var textoLimpio = texto.replace(Regex("(?i)Ucademy|Manual Oposiciones|TCAE SERMAS"), "")
-
-        // Patrones para detectar dónde empieza el contenido real (Tema 1, Capítulo 1...)
-        val patronesInicio = listOf(
-            Regex("TEMA\\s+\\d+", RegexOption.IGNORE_CASE),
-            Regex("MÓDULO\\s+\\d+", RegexOption.IGNORE_CASE),
-            Regex("CAPÍTULO\\s+\\d+", RegexOption.IGNORE_CASE),
-            Regex("UNIDAD\\s+\\d+", RegexOption.IGNORE_CASE)
-        )
-
-        val cabecera = textoLimpio.take(35000)
-
-        // Buscar índice
-        val posIndice = cabecera.indexOf("ÍNDICE", ignoreCase = true)
-        val posTabla = cabecera.indexOf("TABLA DE CONTENIDOS", ignoreCase = true)
-        val puntoDeCorte = if (posIndice != -1) posIndice else posTabla
-
-        // Estrategia: Buscar "TEMA X" después del índice
-        val inicioBusqueda = if (puntoDeCorte != -1) puntoDeCorte + 100 else 0
-
-        for (patron in patronesInicio) {
-            val match = patron.find(cabecera, startIndex = inicioBusqueda)
-            if (match != null) {
-                return textoLimpio.substring(match.range.first)
-            }
-        }
-
-        // Fallback: Si había índice pero no encontramos TEMA X, cortar después del índice
-        if (puntoDeCorte != -1) {
-            val saltoSeguridad = minOf(puntoDeCorte + 2000, textoLimpio.length)
-            return textoLimpio.substring(saltoSeguridad)
-        }
-
-        return textoLimpio
-    }
-
-    // --- UTILIDADES ---
     private fun crearArchivoTemporal(uri: Uri, extension: String): File {
         val tempFile = File.createTempFile("temp_doc_", ".$extension", context.cacheDir)
         context.contentResolver.openInputStream(uri)?.use { input ->
