@@ -8,9 +8,10 @@ object ParseadorExamenes {
     // PATRÓN MAESTRO: Detecta el inicio de una pregunta.
     // Estrategia:
     // 1. Número seguido de punto/paréntesis/guión (ej: "1.", "1)", "1-")
+    //    Ahora permite newlines opcionales después del punto (para formato Murcia: "1.\n\nTexto")
     // 2. O número seguido de espacio si después viene una Mayúscula (ej: "1 ¿Cuál...") para casos donde el OCR se come el punto.
     private val PATRON_INICIO_PREGUNTA = Pattern.compile(
-        "(?:^|\\n|\\s)(\\d{1,3})\\s?[\\.\\)\\-]\\s+|(?:^|\\n)(\\d{1,3})\\s+(?=[A-Z¿¡])"
+        "(?:^|\\n|\\s)(\\d{1,3})\\s?[\\.\\)\\-](?:\\s*\\n)?\\s*|(?:^|\\n)(\\d{1,3})\\s+(?=[A-Z¿¡])"
     )
 
     // PATRÓN OPCIONES: Detecta a), a., A), A. al inicio de línea o tras espacio
@@ -23,13 +24,22 @@ object ParseadorExamenes {
         val texto = textoCompleto.replace("\r", "")
             .replace("\u000C", "") // Eliminar saltos de página (Form Feed)
 
-        Log.d("Parseador", "Iniciando análisis iterativo V10...")
+        Log.d("Parseador", "Iniciando análisis iterativo V11...")
 
         // 1. Detectar Tabla de Respuestas (Si existe al final del documento)
         val mapaRespuestas = detectarTablaDeRespuestas(texto)
         Log.d("Parseador", "Tabla detectada con ${mapaRespuestas.size} respuestas.")
 
-        // 2. Escaneo de Preguntas (Búsqueda activa)
+        // 2. PRE-PROCESAMIENTO: Extraer todas las respuestas inline del documento
+        val mapaRespuestasInline = extraerRespuestasInline(texto)
+        Log.d("Parseador", "Respuestas inline detectadas: ${mapaRespuestasInline.size}")
+        
+        // 3. Combinar mapas de respuestas (tabla tiene prioridad sobre inline)
+        val mapaRespuestasCombinado = mapaRespuestasInline.toMutableMap()
+        mapaRespuestasCombinado.putAll(mapaRespuestas) // La tabla sobrescribe inline si hay conflicto
+        Log.d("Parseador", "Total respuestas combinadas: ${mapaRespuestasCombinado.size}")
+
+        // 4. Escaneo de Preguntas (Búsqueda activa)
         val preguntas = mutableListOf<Pregunta>()
 
         // Buscamos todas las posiciones donde parece empezar una pregunta
@@ -43,7 +53,7 @@ object ParseadorExamenes {
             inicios.add(Pair(matcher.start(), numero))
         }
 
-        // 3. Procesar bloques de texto entre cada inicio detectado
+        // 5. Procesar bloques de texto entre cada inicio detectado
         for (i in inicios.indices) {
             val inicioActual = inicios[i].first
             // El bloque va hasta el inicio de la siguiente pregunta o hasta el final del texto
@@ -54,7 +64,7 @@ object ParseadorExamenes {
             val numeroPregunta = inicios[i].second
 
             // Intentar convertir ese bloque en un objeto Pregunta
-            val pregunta = procesarBloquePregunta(bloque, numeroPregunta, mapaRespuestas)
+            val pregunta = procesarBloquePregunta(bloque, numeroPregunta, mapaRespuestasCombinado)
             if (pregunta != null) {
                 preguntas.add(pregunta)
             }
@@ -121,34 +131,13 @@ object ParseadorExamenes {
         var solucion = "a" // Valor por defecto
         var encontrada = false
 
-        // A) Buscar en Tabla Externa (Prioridad Alta)
+        // A) Buscar en Mapa de Respuestas (Pre-procesado: Tabla Externa + Inline)
         if (mapaRespuestas.containsKey(numero)) {
             solucion = mapaRespuestas[numero] ?: "a"
             encontrada = true
         }
 
-        // B) Buscar Respuesta "Inline" (Caso Canarias)
-        // Ejemplo: "Resp: b" o "Solución: c" al final del bloque
-        if (!encontrada) {
-            val regexInline =
-                Regex("(?:Soluci[óo]n|Resp|Correcta)\\s*[:.]?\\s*([abcd])", RegexOption.IGNORE_CASE)
-            val match = regexInline.find(bloque)
-            if (match != null) {
-                val letra = match.groupValues[1].lowercase()
-                solucion = letra
-                encontrada = true
-
-                // IMPORTANTE: Limpiar el "chivato" del texto de las opciones
-                // (Suele quedarse pegado al final de la opción D o C)
-                val pista = match.value
-                cA = cA.replace(pista, "").trim()
-                cB = cB.replace(pista, "").trim()
-                cC = cC.replace(pista, "").trim()
-                cD = cD.replace(pista, "").trim()
-            }
-        }
-
-        // C) Buscar marcas tipo "(X)" o "Correcta" dentro de una opción
+        // B) Buscar marcas tipo "(X)" o "Correcta" dentro de una opción
         if (!encontrada) {
             fun checkMark(txt: String, l: String): String {
                 if (txt.contains("(X)", true) || txt.endsWith(" Correcta", true)) {
@@ -163,6 +152,14 @@ object ParseadorExamenes {
             cC = checkMark(cC, "c")
             cD = checkMark(cD, "d")
         }
+        
+        // C) LIMPIEZA FINAL: Eliminar cualquier texto de "Respuesta Correcta:" que haya quedado
+        // Esto puede ocurrir cuando la respuesta de la pregunta anterior se coló en este bloque
+        val regexLimpiarRespuesta = Regex("Respuesta\\s+Correcta:\\s*[a-dA-D].*", RegexOption.IGNORE_CASE)
+        cA = regexLimpiarRespuesta.replace(cA, "").trim()
+        cB = regexLimpiarRespuesta.replace(cB, "").trim()
+        cC = regexLimpiarRespuesta.replace(cC, "").trim()
+        cD = regexLimpiarRespuesta.replace(cD, "").trim()
 
         // Solo devolvemos la pregunta si tiene contenido válido
         if (enunciado.isNotBlank() && cA.isNotBlank() && cB.isNotBlank()) {
@@ -171,8 +168,56 @@ object ParseadorExamenes {
         return null
     }
 
+    // PRE-EXTRACTOR DE RESPUESTAS INLINE
+    // Busca todas las "Respuesta Correcta: X" en el documento y las asocia al número de pregunta más cercano
+    private fun extraerRespuestasInline(texto: String): Map<String, String> {
+        val mapa = mutableMapOf<String, String>()
+        
+        // Patrón para encontrar "Respuesta Correcta: X"
+        val regexRespuesta = Regex("Respuesta\\s+Correcta:\\s*([a-dA-D])(?![a-zA-Záéíóú])", RegexOption.IGNORE_CASE)
+        
+        // Encontrar todas las respuestas en el documento
+        val respuestas = regexRespuesta.findAll(texto).toList()
+        
+        // Para cada respuesta, buscar el número de pregunta más cercano ANTES de ella
+        for (matchRespuesta in respuestas) {
+            val posicionRespuesta = matchRespuesta.range.first
+            val letraRespuesta = matchRespuesta.groupValues[1].lowercase()
+            
+            // Buscar hacia atrás el número de pregunta más cercano
+            // Tomamos los últimos 500 caracteres antes de la respuesta para buscar el número
+            val inicioVentana = maxOf(0, posicionRespuesta - 500)
+            val ventana = texto.substring(inicioVentana, posicionRespuesta)
+            
+            // Buscar el último número de pregunta en esta ventana
+            val regexNumero = Regex("(?:^|\\n|\\s)(\\d{1,3})\\s?[\\.\\)\\-]\\s+|(?:^|\\n)(\\d{1,3})\\s+(?=[A-Z¿¡])")
+            val numerosEncontrados = regexNumero.findAll(ventana).toList()
+            
+            if (numerosEncontrados.isNotEmpty()) {
+                // Tomar el último número encontrado (el más cercano a la respuesta)
+                val ultimoMatch = numerosEncontrados.last()
+                val numeroPregunta = ultimoMatch.groupValues[1] ?: ultimoMatch.groupValues[2]
+                
+                if (numeroPregunta.isNotEmpty()) {
+                    mapa[numeroPregunta] = letraRespuesta
+                    Log.d("Parseador", "Respuesta inline encontrada: Pregunta $numeroPregunta -> $letraRespuesta")
+                }
+            }
+        }
+        
+        return mapa
+    }
+
     // Detector de tablas robusto (Tolera errores de OCR)
     private fun detectarTablaDeRespuestas(texto: String): Map<String, String> {
+        // Estrategia 1: Buscar tabla estructurada con encabezados (formato Murcia)
+        val tablaEstructurada = detectarTablaEstructurada(texto)
+        if (tablaEstructurada.isNotEmpty()) {
+            Log.d("Parseador", "Tabla estructurada detectada con ${tablaEstructurada.size} respuestas")
+            return tablaEstructurada
+        }
+        
+        // Estrategia 2: Detección por patrón (formato original)
         val mapa = mutableMapOf<String, String>()
         // Regex busca: Número + (espacios/puntos/guiones opcionales) + Letra
         // (?![a-zA-Z]) asegura que la letra no sea el inicio de una palabra (ej: "1 Año")
@@ -194,6 +239,43 @@ object ParseadorExamenes {
             val letra = m.groupValues[2].lowercase()
             mapa[num] = letra
         }
+        
+        Log.d("Parseador", "Tabla por patrón detectada con ${mapa.size} respuestas")
+        return mapa
+    }
+    
+    // Detecta tablas estructuradas con encabezados (formato Murcia)
+    private fun detectarTablaEstructurada(texto: String): Map<String, String> {
+        val mapa = mutableMapOf<String, String>()
+        
+        // Buscar encabezados de tabla
+        // Ejemplos: "NÚMERO PREGUNTA RESPUESTA CORRECTA", "NUM RESP CORRECTA", etc.
+        val headerPattern = Regex(
+            "(?:NÚMERO|N[UÚ]MERO|NUM)\\s+(?:PREGUNTA)?\\s*(?:RESPUESTA|RESP)\\s+(?:CORRECTA)?",
+            RegexOption.IGNORE_CASE
+        )
+        
+        val headerMatch = headerPattern.find(texto) ?: return emptyMap()
+        val startPos = headerMatch.range.last
+        
+        Log.d("Parseador", "Encabezado de tabla encontrado en posición $startPos")
+        
+        // Extraer filas de tabla después del encabezado
+        val tableText = texto.substring(startPos)
+        val lines = tableText.lines().take(200) // Limitar a 200 líneas para evitar procesar todo el documento
+        
+        for (line in lines) {
+            // Coincidir: número + espacios + letra (formato tabla)
+            // Ejemplos: "1    C", "85   B", "  42  A"
+            val rowPattern = Regex("^\\s*(\\d{1,3})\\s+([A-Da-d])\\s*$")
+            val match = rowPattern.find(line.trim())
+            if (match != null) {
+                val num = match.groupValues[1]
+                val letra = match.groupValues[2].lowercase()
+                mapa[num] = letra
+            }
+        }
+        
         return mapa
     }
 }

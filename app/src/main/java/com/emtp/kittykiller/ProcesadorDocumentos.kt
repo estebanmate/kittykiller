@@ -63,7 +63,10 @@ class ProcesadorDocumentos(private val context: Context) {
                         // No limpiamos DOCX, devolvemos todo tal cual
                     } else {
                         onProgress("Detectando inicio real del tema (saltando introducciones)...")
-                        texto = limpiarContenidoTeoriaPDF(texto)
+                        val esUcademy = nombreArchivo.contains("TCAE SERMAS", ignoreCase = true) ||
+                                       nombreArchivo.contains("Ucademy", ignoreCase = true) ||
+                                       texto.contains("Ucademy", ignoreCase = true)
+                        texto = limpiarContenidoTeoriaPDF(texto, esUcademy)
                     }
                 }
 
@@ -170,43 +173,86 @@ class ProcesadorDocumentos(private val context: Context) {
     }
 
     // --- LIMPIEZA INTELIGENTE PARA PDFs (UCADEMY) ---
-    private fun limpiarContenidoTeoriaPDF(texto: String): String {
+    private fun limpiarContenidoTeoriaPDF(texto: String, esUcademy: Boolean = false): String {
+        // Para PDFs de Ucademy, sabemos que la teoría empieza en la página 9
+        if (esUcademy) {
+            Log.d("Procesador", "PDF Ucademy detectado, extrayendo desde página 9")
+            val textoExtraido = extraerDesdePagina(texto, paginaInicio = 8) // 0-indexed, so page 9 = index 8
+            // Limpiar cabeceras repetitivas
+            return textoExtraido.replace(Regex("(?i)Ucademy|Manual Oposiciones|TÉCNICO EN CUIDADOS AUXILIARES DE ENFERMERÍA|SERVICIO MADRILEÑO DE SALUD"), "")
+                .replace(Regex("\\s+"), " ") // Normalizar espacios
+                .trim()
+        }
+
+        // Para otros PDFs, usar la lógica existente mejorada
         // 1. Eliminar cabeceras repetitivas
-        val textoSinCabeceras =
-            texto.replace(Regex("(?i)Ucademy|Manual Oposiciones|TCAE SERMAS|Bloque \\w+"), "")
+        val textoSinCabeceras = texto.replace(Regex("(?i)Ucademy|Manual Oposiciones|TCAE SERMAS|Bloque \\w+"), "")
 
         // 2. Buscar Índice
         val indices = listOf("ÍNDICE", "TABLA DE CONTENIDOS", "SUMARIO")
         var posIndice = -1
         for (idx in indices) {
             posIndice = textoSinCabeceras.indexOf(idx, ignoreCase = true)
-            if (posIndice != -1) break
+            if (posIndice != -1) {
+                Log.d("Procesador", "Índice encontrado en posición $posIndice")
+                break
+            }
         }
 
-        if (posIndice == -1) return textoSinCabeceras // Si no hay índice, devolvemos todo
+        if (posIndice == -1) {
+            Log.d("Procesador", "No se encontró índice, procesando todo el contenido")
+            return textoSinCabeceras
+        }
 
-        // 3. Buscar inicio real DESPUÉS del índice + margen de seguridad
+        // 3. Buscar inicio real DESPUÉS del índice
         val textoPostIndice = textoSinCabeceras.substring(posIndice)
-        val saltoSeguridad =
-            minOf(3000, textoPostIndice.length) // Saltamos ~3000 chars (la lista de caps)
+        val saltoSeguridad = minOf(3000, textoPostIndice.length)
 
-        // Patrones de inicio: "1. Introducción", "TEMA 1", "UNIDAD DIDÁCTICA"
+        // Patrones de inicio mejorados
         val patronesInicio = listOf(
-            Regex("\\n\\s*1\\.\\s+[A-ZÁÉÍÓÚÑ]", RegexOption.IGNORE_CASE),
-            Regex("TEMA\\s+\\d+", RegexOption.IGNORE_CASE),
-            Regex("UNIDAD\\s+DIDÁCTICA", RegexOption.IGNORE_CASE)
+            Regex("\\n\\s*1\\.\\s+[A-ZÁÉÍÓÚÑ]"),
+            Regex("\\nTEMA\\s+1\\b", RegexOption.IGNORE_CASE),
+            Regex("\\nUNIDAD\\s+DIDÁCTICA\\s+1\\b", RegexOption.IGNORE_CASE),
+            Regex("\\nCAPÍTULO\\s+1\\b", RegexOption.IGNORE_CASE)
         )
 
         for (patron in patronesInicio) {
             val match = patron.find(textoPostIndice, startIndex = saltoSeguridad)
             if (match != null) {
-                Log.d("Procesador", "Inicio Teoría detectado en: ${match.value}")
-                return textoPostIndice.substring(match.range.first)
+                Log.d("Procesador", "Inicio de teoría detectado: ${match.value.trim()}")
+                return textoPostIndice.substring(match.range.first).trim()
             }
         }
 
-        // Fallback: Cortar a lo bruto después del margen de seguridad
-        return textoPostIndice.substring(saltoSeguridad)
+        // Fallback: Cortar después del margen de seguridad
+        Log.d("Procesador", "Usando fallback: cortando después de $saltoSeguridad caracteres")
+        return textoPostIndice.substring(saltoSeguridad).trim()
+    }
+
+    // Extrae contenido desde una página específica (basado en Form Feed characters)
+    private fun extraerDesdePagina(texto: String, paginaInicio: Int): String {
+        if (paginaInicio <= 0) return texto
+        
+        // Contar Form Feeds (\f o \u000C) que marcan saltos de página
+        var contador = 0
+        var posicion = 0
+        
+        while (contador < paginaInicio && posicion < texto.length) {
+            val siguiente = texto.indexOf('\u000C', posicion)
+            if (siguiente == -1) {
+                // No hay más páginas, devolver desde la posición actual
+                break
+            }
+            posicion = siguiente + 1
+            contador++
+        }
+        
+        return if (posicion < texto.length) {
+            texto.substring(posicion)
+        } else {
+            Log.w("Procesador", "No se pudo llegar a la página $paginaInicio, devolviendo todo")
+            texto
+        }
     }
 
     private fun determinarTipo(nombre: String): TipoDoc {

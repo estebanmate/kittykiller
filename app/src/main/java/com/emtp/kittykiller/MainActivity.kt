@@ -112,10 +112,40 @@ class MainActivity : AppCompatActivity() {
                     tvEstado.text = "Analizando estructura del test..."
                     ParseadorExamenes.parsearTexto(texto)
                 } else {
-                    // CASO TEORÍA: Usar Motor IA (Generativo)
-                    tvEstado.text = "Generando preguntas con IA..."
-                    val promptSalida = MotorIA.generarPreguntas(texto, 20) // Pedimos 20 preguntas
-                    ParseadorExamenes.parsearTexto(promptSalida)
+                    // CASO TEORÍA: Solicitar cantidad de preguntas al usuario
+                    solicitarCantidadPreguntas { cantidadPreguntas ->
+                        lifecycleScope.launch {
+                            try {
+                                tvEstado.text = "Generando $cantidadPreguntas preguntas con IA..."
+                                val promptSalida = MotorIA.generarPreguntas(texto, cantidadPreguntas)
+                                val preguntas = ParseadorExamenes.parsearTexto(promptSalida)
+                                
+                                progressBar.visibility = View.GONE
+                                btnCargarArchivo.isEnabled = true
+
+                                if (preguntas.isNotEmpty()) {
+                                    QuizRepository.preguntas = preguntas
+                                    tvEstado.text = "¡Listo! ${preguntas.size} preguntas cargadas."
+
+                                    val intent = Intent(this@MainActivity, PreguntaActivity::class.java)
+                                    startActivity(intent)
+                                } else {
+                                    tvEstado.text = "No se pudieron extraer preguntas válidas."
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "El documento no parece contener preguntas o formato válido.",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            } catch (e: Exception) {
+                                progressBar.visibility = View.GONE
+                                btnCargarArchivo.isEnabled = true
+                                tvEstado.text = "Error interno: ${e.message}"
+                                e.printStackTrace()
+                            }
+                        }
+                    }
+                    return@launch // Salir aquí para TEORÍA, el callback maneja el resto
                 }
 
                 progressBar.visibility = View.GONE
@@ -144,6 +174,57 @@ class MainActivity : AppCompatActivity() {
                 e.printStackTrace()
             }
         }
+    }
+    
+    private fun solicitarCantidadPreguntas(onCantidadSeleccionada: (Int) -> Unit) {
+        val builder = android.app.AlertDialog.Builder(this)
+        builder.setTitle("Generar Preguntas")
+        builder.setMessage("¿Cuántas preguntas deseas generar?")
+        
+        // Crear EditText para input
+        val input = android.widget.EditText(this)
+        input.inputType = android.text.InputType.TYPE_CLASS_NUMBER
+        input.hint = "Ejemplo: 60"
+        input.setText("20") // Valor por defecto
+        
+        // Agregar padding al EditText
+        val padding = (16 * resources.displayMetrics.density).toInt()
+        input.setPadding(padding, padding, padding, padding)
+        
+        builder.setView(input)
+        
+        builder.setPositiveButton("Generar") { dialog, _ ->
+            val cantidadTexto = input.text.toString()
+            val cantidad = cantidadTexto.toIntOrNull() ?: 20
+            
+            // Validar rango razonable
+            val cantidadFinal = when {
+                cantidad < 5 -> 5
+                cantidad > 200 -> 200
+                else -> cantidad
+            }
+            
+            if (cantidadFinal != cantidad) {
+                Toast.makeText(
+                    this,
+                    "Cantidad ajustada a $cantidadFinal (rango: 5-200)",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            
+            dialog.dismiss()
+            onCantidadSeleccionada(cantidadFinal)
+        }
+        
+        builder.setNegativeButton("Cancelar") { dialog, _ ->
+            dialog.dismiss()
+            progressBar.visibility = View.GONE
+            btnCargarArchivo.isEnabled = true
+            tvEstado.text = "Generación cancelada"
+        }
+        
+        builder.setCancelable(false)
+        builder.show()
     }
 
     // Utilidad para sacar el nombre del archivo de la URI
