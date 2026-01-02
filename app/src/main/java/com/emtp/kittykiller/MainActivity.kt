@@ -7,7 +7,6 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.text.InputType
 import android.util.Log
-import android.view.View
 import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -61,7 +60,7 @@ class MainActivity : AppCompatActivity() {
             // Fallback if started without data (e.g. testing)
             binding.tvEstadoAnalisis.text = "Seleccione un archivo..."
             // Launch picker immediately
-             filePickerLauncher.launch(
+            filePickerLauncher.launch(
                 arrayOf(
                     "application/pdf",
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -184,7 +183,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val respuestaRaw = MotorIA.generarPreguntas(textoRonda, pedirAhora)
-                val nuevas = ParseadorExamenes.parsearSalidaIA(respuestaRaw)
+                val nuevas = ParseadorExamenes.parsearSalidaIA_Etiquetas(respuestaRaw)
                 val validas = nuevas.filter { it.opcionA.isNotBlank() && it.enunciado.isNotBlank() }
 
                 if (validas.isNotEmpty()) {
@@ -203,7 +202,11 @@ class MainActivity : AppCompatActivity() {
                 iniciarExamen(preguntasAcumuladas.take(cantidadTotalSolicitada))
             } else {
                 binding.tvEstadoAnalisis.text = "Error: La IA no pudo generar preguntas."
-                Toast.makeText(this@MainActivity, "La IA no pudo generar preguntas.", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    this@MainActivity,
+                    "La IA no pudo generar preguntas.",
+                    Toast.LENGTH_LONG
+                ).show()
                 finish()
             }
         }

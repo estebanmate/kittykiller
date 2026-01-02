@@ -4,38 +4,45 @@ import android.util.Log
 
 object ParseadorExamenes {
 
+    data class Pregunta(
+        val enunciado: String,
+        val opcionA: String,
+        val opcionB: String,
+        val opcionC: String,
+        val opcionD: String,
+        val solucion: String
+    )
+
     fun parsearTexto(textoCompleto: String): List<Pregunta> {
         val texto = textoCompleto.replace("\r", "")
-        Log.d("Parseador", "Iniciando análisis MASTER V5...")
+        Log.d("Parseador", "Iniciando análisis (Estrategia Híbrida)...")
 
-        // 1. MODO IA (Si viene del generador, usa etiquetas explícitas)
-        if (texto.contains("### PREGUNTA ###", ignoreCase = true)) {
-            return parsearSalidaIA_Etiquetas(texto)
-        }
+        // 1. ESTRATEGIA: TABLA DE RESPUESTAS (Andalucía, Murcia, Madrid)
+        // Buscamos patrones de "Número + Letra" que aparezcan en bloque (generalmente al final)
+        val mapaRespuestas = detectarTablaDeRespuestas(texto)
+        Log.d("Parseador", "Tabla detectada: ${mapaRespuestas.size} respuestas encontradas.")
 
-        // 2. MODO PDF/DOC EXISTENTE
-        // A. Detectar Tabla de Respuestas (Algoritmo de Densidad)
-        // Busca bloques densos de "Número + Letra" al final o principio del documento
-        val mapaRespuestas = detectarTablaDeRespuestasInteligente(texto)
-        Log.d("Parseador", "Respuestas en tabla validadas: ${mapaRespuestas.size}")
-
-        // B. Parsear Preguntas (Algoritmo de Troceado + Inline)
-        return parsearPatronesNumericos(texto, mapaRespuestas)
+        // 2. ESTRATEGIA: PARSEO SECUENCIAL (Pregunta a Pregunta)
+        return parsearPreguntasSecuencial(texto, mapaRespuestas)
     }
 
-    // --- A. DETECTOR DE TABLAS (Soporta columnas anchas y rejillas) ---
-    private fun detectarTablaDeRespuestasInteligente(texto: String): Map<String, String> {
+    // --- DETECTOR DE TABLAS (Optimizado para OCR y Texto Nativo) ---
+    private fun detectarTablaDeRespuestas(texto: String): Map<String, String> {
         val mapa = mutableMapOf<String, String>()
 
-        // Regex permisivo: Busca "1. a", "1 a", "1-a", "1   A"
-        // \s{0,25} permite hasta 25 espacios para tablas muy anchas como las de tus imágenes
-        val regexPosible =
-            Regex("(?:^|\\s|\\n)(\\d{1,3})\\s{0,25}[:.\\-\\)]?\\s*([a-dA-D])(?![a-zA-Záéíóú])")
+        // Regex para capturar filas de tablas.
+        // Soporta: "1. a", "1-a", "1) A", "1 a", e incluso saltos de línea por culpa del OCR.
+        // \s{0,20} permite que el número y la letra estén muy separados visualmente.
+        val regexFilaTabla = Regex(
+            "(?:^|\\n|\\s)(\\d{1,3})\\s{0,20}[:.\\-\\)]?\\s{0,5}([a-dA-D])(?![a-zA-Záéíóú])"
+        )
 
-        val coincidencias = regexPosible.findAll(texto).toList()
+        val coincidencias = regexFilaTabla.findAll(texto).toList()
         if (coincidencias.isEmpty()) return emptyMap()
 
-        // Agrupamiento por proximidad (Densidad)
+        // Agrupamiento por densidad:
+        // Las tablas reales tienen muchos pares "número-letra" juntos.
+        // El texto normal tiene menciones dispersas.
         val grupos = mutableListOf<MutableList<MatchResult>>()
         var grupoActual = mutableListOf<MatchResult>()
         grupos.add(grupoActual)
@@ -47,74 +54,81 @@ object ParseadorExamenes {
             val previo = coincidencias[i - 1]
             val distancia = actual.range.first - previo.range.last
 
-            // Si están a menos de 400 caracteres, son "vecinos" (misma tabla/página)
-            if (distancia < 400) {
+            // Si hay menos de 200 caracteres entre una coincidencia y otra, es probable que sea la misma tabla
+            if (distancia < 200) {
                 grupoActual.add(actual)
             } else {
-                grupoActual = mutableListOf()
+                grupoActual = mutableListOf() // Nuevo grupo (posiblemente otra tabla o ruido)
                 grupoActual.add(actual)
                 grupos.add(grupoActual)
             }
         }
 
-        // Elegimos el grupo más grande que parezca una tabla (mínimo 4 aciertos)
+        // Elegimos el grupo más grande que tenga pinta de tabla (mínimo 10 aciertos para evitar falsos positivos)
+        // Para Madrid (55 preguntas), Murcia (85) y Andalucía (153), esto funcionará bien.
         val mejorGrupo = grupos.maxByOrNull { it.size } ?: return emptyMap()
+        if (mejorGrupo.size < 10) return emptyMap()
 
-        // Filtro de seguridad: Una tabla real suele tener al menos 4-5 respuestas juntas
-        if (mejorGrupo.size < 4) return emptyMap()
+        Log.d("Parseador", "Grupo candidato a tabla encontrado con ${mejorGrupo.size} elementos.")
 
         for (match in mejorGrupo) {
             val numero = match.groupValues[1]
             val letra = match.groupValues[2].lowercase()
-            // Prioridad a la primera aparición para evitar duplicados erróneos
-            if (!mapa.containsKey(numero)) mapa[numero] = letra
+            // Si hay duplicados, guardamos la última ocurrencia (a veces hay correcciones al final)
+            // o la primera si preferimos seguridad. Aquí usamos put directo.
+            mapa[numero] = letra
         }
+
         return mapa
     }
 
-    // --- B. PARSER DE PREGUNTAS (Troceado por índices) ---
-    private fun parsearPatronesNumericos(
+    // --- PARSEO DEL CUERPO (Troceado inteligente) ---
+    private fun parsearPreguntasSecuencial(
         texto: String,
         mapaRespuestas: Map<String, String>
     ): List<Pregunta> {
         val lista = mutableListOf<Pregunta>()
 
-        // Separador de preguntas: "1.", "2-", "3)" al inicio de línea
-        val regexSeparador = Regex("(?=\\n\\d+[\\.|\\)|-]\\s+)")
+        // Regex para cortar preguntas. Busca "1.", "2)", "3-" al inicio de una línea nueva.
+        // (?=...) es un Lookahead para no "consumir" el número y poder leerlo luego.
+        val regexSeparador = Regex("(?=\\n\\s*\\d+[\\.|\\)|-]\\s*)")
         val bloques = texto.split(regexSeparador)
 
-        // Detectores de inicio de opción: " a) ", " A. ", etc.
+        // Regex para detectar opciones (a), b., C), etc.)
         val regexInicioOpcion = Regex("(?:^|\\n|\\s)([a-d])[\\.|\\)]\\s+", RegexOption.IGNORE_CASE)
 
-        // Detectores de respuesta correcta "Inline" (ej: "[X]") o "Final" (ej: "Sol: a")
-        val regexMarcaInline =
-            Regex("\\s*(\\(?[xXvV]\\)?|\\(?Correcta\\)?|✅)\\s*$", RegexOption.IGNORE_CASE)
-        val regexLineaFinal = Regex(
-            "(Soluci[óo]n|Respuesta|Correcta)(\\s+correcta)?[:.]?\\s*([abcd])",
+        // Regex para detectar respuestas INLINE (Caso Canarias)
+        // Busca "Sol: a", "Resp: b", "Respuesta Correcta: c", o marcas "(X)"
+        val regexRespuestaInline = Regex(
+            "(?:Soluci[óo]n|Resp|Respuesta|Correcta)\\s*[:.]?\\s*([abcd])|\\s*\\([xXvV]\\)\\s*$",
             RegexOption.IGNORE_CASE
         )
 
         for (bloque in bloques) {
-            if (bloque.length < 20) continue
+            if (bloque.length < 30) continue // Ignorar basura
 
-            // 1. Extraer Número
-            val regexNumero = Regex("^(\\d+)[\\.|\\)|-]").find(bloque)
-            val numeroPregunta = regexNumero?.groupValues?.getOrNull(1) ?: "0"
+            // 1. Extraer NÚMERO
+            val regexNumero = Regex("^\\s*(\\d+)[\\.|\\)|-]").find(bloque)
+            val numeroPregunta = regexNumero?.groupValues?.getOrNull(1) ?: continue
 
-            // 2. Mapear Opciones (Troceado exacto para no duplicar texto)
+            // 2. Extraer OPCIONES
             val matchesOpciones = regexInicioOpcion.findAll(bloque).toList()
-            if (matchesOpciones.size < 2) continue // Necesitamos al menos A y B
+            if (matchesOpciones.size < 2) continue // Necesitamos al menos 2 opciones para que sea un test
 
-            // Cortar Enunciado
-            val inicioEnunciado = regexNumero?.range?.last?.plus(1) ?: 0
+            // 3. Cortar ENUNCIADO
+            // Desde el final del número hasta el inicio de la opción 'a)'
+            val inicioEnunciado = regexNumero.range.last + 1
             val finEnunciado = matchesOpciones[0].range.first
-            val enunciado = bloque.substring(inicioEnunciado, finEnunciado).trim()
+            var enunciado = bloque.substring(inicioEnunciado, finEnunciado).trim()
+            // Limpieza extra del enunciado (quitar guiones o puntos iniciales)
+            enunciado = enunciado.replace(Regex("^\\s*[-.]\\s*"), "")
 
-            // Cortar Opciones usando los índices detectados
+            // 4. Mapear textos de OPCIONES
             val opcionesMap = mutableMapOf<String, String>()
             for (i in matchesOpciones.indices) {
                 val letra = matchesOpciones[i].groupValues[1].lowercase()
                 val inicioTexto = matchesOpciones[i].range.last + 1
+                // El texto va hasta la siguiente opción o hasta el final del bloque
                 val finTexto =
                     if (i < matchesOpciones.size - 1) matchesOpciones[i + 1].range.first else bloque.length
                 opcionesMap[letra] = bloque.substring(inicioTexto, finTexto).trim()
@@ -125,71 +139,62 @@ object ParseadorExamenes {
             var cC = opcionesMap["c"] ?: ""
             var cD = opcionesMap["d"] ?: ""
 
-            // 3. Lógica de Respuesta Correcta (Jerarquía de detección)
+            // 5. DETERMINAR SOLUCIÓN
             var solucion = "a" // Default
             var encontrada = false
 
-            // Nivel 1: Marcas Inline (ej: "a) Texto (X)")
-            fun limpiar(tx: String, l: String): String {
-                if (regexMarcaInline.containsMatchIn(tx)) {
-                    solucion = l; encontrada = true
-                    return tx.replace(regexMarcaInline, "").trim()
-                }
-                return tx
-            }
-            cA = limpiar(cA, "a"); cB = limpiar(cB, "b"); cC = limpiar(cC, "c"); cD =
-                limpiar(cD, "d")
-
-            // Nivel 2: Línea final (ej: "Solución: b" al final del bloque)
-            if (!encontrada) {
-                val matchFinal = regexLineaFinal.find(bloque)
-                if (matchFinal != null) {
-                    solucion = matchFinal.groupValues[3].lowercase()
-                    encontrada = true
-                    // Limpiar la frase de la última opción (normalmente D o C)
-                    val basura = matchFinal.value
-                    if (cD.contains(basura)) cD = cD.replace(basura, "", ignoreCase = true).trim()
-                    if (cC.contains(basura)) cC = cC.replace(basura, "", ignoreCase = true).trim()
-                }
-            }
-
-            // Nivel 3: Tabla externa (Leída en el paso A)
-            if (!encontrada && mapaRespuestas.containsKey(numeroPregunta)) {
+            // PRIORIDAD A: ¿Está en el mapa de tabla (final del documento)?
+            if (mapaRespuestas.containsKey(numeroPregunta)) {
                 solucion = mapaRespuestas[numeroPregunta] ?: "a"
+                encontrada = true
             }
 
-            if (cA.isNotBlank() && cB.isNotBlank()) {
+            // PRIORIDAD B: ¿Está escrita en el propio texto (Caso Canarias)?
+            // Si NO se encontró en la tabla, buscamos "Resp: X" en el bloque
+            if (!encontrada) {
+                val matchInline = regexRespuestaInline.find(bloque)
+                if (matchInline != null) {
+                    // Caso "Resp: a"
+                    val letraCapturada = matchInline.groupValues.getOrNull(1)
+                    if (!letraCapturada.isNullOrBlank()) {
+                        solucion = letraCapturada.lowercase()
+                        encontrada = true
+                        // Limpiamos la pista de la respuesta del texto de la última opción (D)
+                        // para que el usuario no vea "La respuesta es la b" en la app.
+                        val textoPista = matchInline.value
+                        if (cD.contains(textoPista)) cD = cD.replace(textoPista, "").trim()
+                        if (cC.contains(textoPista)) cC = cC.replace(textoPista, "").trim()
+                    }
+                }
+            }
+
+            // PRIORIDAD C: Marcas específicas tipo "(X)" dentro de una opción
+            if (!encontrada) {
+                fun checkMark(texto: String, letra: String): String {
+                    if (texto.contains("(X)", ignoreCase = true) || texto.endsWith(
+                            " Correcta",
+                            ignoreCase = true
+                        )
+                    ) {
+                        solucion = letra
+                        encontrada = true
+                        return texto.replace("(X)", "", ignoreCase = true)
+                            .replace(" Correcta", "", ignoreCase = true).trim()
+                    }
+                    return texto
+                }
+                cA = checkMark(cA, "a")
+                cB = checkMark(cB, "b")
+                cC = checkMark(cC, "c")
+                cD = checkMark(cD, "d")
+            }
+
+            // Guardar
+            if (enunciado.isNotBlank() && cA.isNotBlank() && cB.isNotBlank()) {
                 lista.add(Pregunta(enunciado, cA, cB, cC, cD, solucion))
             }
         }
+
         return lista
     }
-
-    // --- C. PARSER IA (Etiquetas ###) ---
-    fun parsearSalidaIA_Etiquetas(texto: String): List<Pregunta> {
-        val lista = mutableListOf<Pregunta>()
-        val bloques = texto.split(Regex("###\\s*PREGUNTA\\s*###", RegexOption.IGNORE_CASE))
-        for (bloque in bloques) {
-            if (bloque.isBlank()) continue
-            val enun = extraerTag(bloque, "ENUNCIADO")
-            val a = extraerTag(bloque, "OPCION_A")
-            val b = extraerTag(bloque, "OPCION_B")
-            val c = extraerTag(bloque, "OPCION_C")
-            val d = extraerTag(bloque, "OPCION_D")
-            var sol = extraerTag(bloque, "SOLUCION").lowercase().take(1)
-
-            if (sol !in "abcd") sol = "a"
-            if (enun.isNotBlank() && a.isNotBlank()) lista.add(Pregunta(enun, a, b, c, d, sol))
-        }
-        return lista
-    }
-
-    private fun extraerTag(tx: String, tag: String) =
-        Regex(
-            "$tag:\\s*(.*?)(?=$|\\n[A-Z_]+:)",
-            RegexOption.DOT_MATCHES_ALL
-        ).find(tx)?.groupValues?.get(1)?.trim() ?: ""
-
-    // Alias para compatibilidad con código antiguo
-    fun parsearSalidaIA(t: String) = parsearTexto(t)
 }

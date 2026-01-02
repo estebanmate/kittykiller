@@ -35,8 +35,8 @@ class ProcesadorDocumentos(private val context: Context) {
         onProgress: (String) -> Unit
     ): Pair<TipoDoc, String> {
         return withContext(Dispatchers.IO) {
+            // Clasificación por nombre (Test vs Teoría)
             val tipo = determinarTipo(nombreArchivo)
-            // Extraer extensión ignorando mayúsculas
             val extension = nombreArchivo.substringAfterLast('.', "").lowercase()
 
             val tempFile = crearArchivoTemporal(uri, extension)
@@ -59,7 +59,7 @@ class ProcesadorDocumentos(private val context: Context) {
                 }
 
                 // IMPORTANTE: Solo limpiamos (borramos portadas/índice) si es TEORÍA.
-                // Si es un TEST, necesitamos todo el contenido íntegro.
+                // Si es un TEST, necesitamos todo el contenido íntegro para detectar preguntas.
                 if (tipo == TipoDoc.TEORIA) {
                     onProgress("Optimizando contenido para IA...")
                     texto = limpiarContenidoTeoria(texto)
@@ -69,7 +69,7 @@ class ProcesadorDocumentos(private val context: Context) {
                 e.printStackTrace()
                 texto = "Error al leer el archivo: ${e.message}"
             } finally {
-                // Borrar archivo temporal para no llenar el móvil de basura
+                // Borrar archivo temporal para no llenar el almacenamiento
                 if (tempFile.exists()) tempFile.delete()
             }
 
@@ -96,9 +96,15 @@ class ProcesadorDocumentos(private val context: Context) {
             Log.e("PDF", "Error lectura nativa", e)
         }
 
-        // Si el texto extraído es muy corto, asumimos que es un PDF ESCANEADO (Imagen)
-        // y lanzamos el OCR de Google.
-        if (textoNativo.trim().length < 200) {
+        // --- LÓGICA DE DETECCIÓN DE ESCANEADO ---
+        // 1. Si el texto es muy corto (< 200 chars), es casi seguro una imagen.
+        // 2. Si tiene muchos símbolos de "desconocido" (), es un PDF mal codificado.
+        val esMuyCorto = textoNativo.trim().length < 200
+        val pareceBasura =
+            textoNativo.count { it == '\uFFFD' } > 20 // Carácter 'replacement' común en errores
+
+        if (esMuyCorto || pareceBasura) {
+            onProgress("Texto digital no detectado o ilegible. Activando OCR (Escaneo)...")
             return realizarOCR(file, onProgress)
         }
 
@@ -108,7 +114,7 @@ class ProcesadorDocumentos(private val context: Context) {
     // --- MOTOR OCR (ML Kit) ---
     private suspend fun realizarOCR(file: File, onProgress: (String) -> Unit): String {
         val textoCompleto = StringBuilder()
-        // Cliente de reconocimiento de texto latino (Español, Inglés, etc.)
+        // Cliente de reconocimiento de texto
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
         try {
@@ -117,30 +123,32 @@ class ProcesadorDocumentos(private val context: Context) {
             val renderer = PdfRenderer(fileDescriptor)
             val totalPaginas = renderer.pageCount
 
-            onProgress("Documento escaneado detectado. Iniciando OCR...")
+            onProgress("Iniciando escaneo inteligente de $totalPaginas páginas...")
 
             for (i in 0 until totalPaginas) {
-                // Notificar progreso cada pocas páginas para no saturar la UI
+                // Notificar progreso cada pocas páginas
                 if (i % 3 == 0 || i == totalPaginas - 1) {
                     withContext(Dispatchers.Main) {
                         onProgress("Escaneando página ${i + 1} de $totalPaginas...")
                     }
                 }
 
-                // Renderizar página a imagen
+                // Renderizar página a imagen (Bitmap)
                 val page = renderer.openPage(i)
-                // Usamos densidad x2 para mejorar la calidad del reconocimiento
-                val bitmap =
-                    Bitmap.createBitmap(page.width * 2, page.height * 2, Bitmap.Config.ARGB_8888)
+                // Aumentamos la densidad (escala x2) para que ML Kit lea mejor la letra pequeña
+                val width = (page.width * 2).toInt()
+                val height = (page.height * 2).toInt()
+                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+
                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
 
-                // Procesar con ML Kit
+                // Procesar imagen con ML Kit
                 val image = InputImage.fromBitmap(bitmap, 0)
-                val result = recognizer.process(image).await() // .await() necesita corrutinas
+                val result = recognizer.process(image).await() // .await() requiere corrutinas
 
                 textoCompleto.append(result.text).append("\n\n")
 
-                // Limpieza de memoria CRÍTICA
+                // Limpieza de memoria (CRÍTICO en bucles grandes)
                 page.close()
                 bitmap.recycle()
             }
@@ -173,7 +181,6 @@ class ProcesadorDocumentos(private val context: Context) {
     }
 
     // --- LÓGICA DE NEGOCIO ---
-
     private fun determinarTipo(nombre: String): TipoDoc {
         return when {
             nombre.contains("EXAMEN", ignoreCase = true) ||
@@ -184,71 +191,46 @@ class ProcesadorDocumentos(private val context: Context) {
                     nombre.contains("TEMARIO", ignoreCase = true) ||
                     nombre.contains("APUNTES", ignoreCase = true) -> TipoDoc.TEORIA
 
-            else -> TipoDoc.TEORIA // Por defecto tratamos como teoría para IA
+            else -> TipoDoc.TEORIA // Por defecto
         }
     }
 
-    // --- LIMPIEZA AVANZADA (Fix para Ucademy) ---
-    // --- LÓGICA DE LIMPIEZA DE TEORÍA (REGEX AVANZADO) ---
+    // --- LIMPIEZA DE TEORÍA ---
     private fun limpiarContenidoTeoria(texto: String): String {
-        // 1. Limpieza de "ruido" repetitivo (Cabeceras de Ucademy, etc.)
-        // Esto evita que la IA lea "Ucademy" 50 veces y se distraiga.
+        // Eliminar cabeceras repetitivas que confunden a la IA
         var textoLimpio = texto.replace(Regex("(?i)Ucademy|Manual Oposiciones|TCAE SERMAS"), "")
 
-        // 2. Definimos patrones inteligentes (Regex)
-        // \d+ significa "cualquier número" (1, 10, 25...)
+        // Patrones para detectar dónde empieza el contenido real (Tema 1, Capítulo 1...)
         val patronesInicio = listOf(
-            Regex("TEMA\\s+\\d+", RegexOption.IGNORE_CASE),      // Detecta: TEMA 1, TEMA 10...
-            Regex("MÓDULO\\s+\\d+", RegexOption.IGNORE_CASE),    // Detecta: MÓDULO 3...
-            Regex("CAPÍTULO\\s+\\d+", RegexOption.IGNORE_CASE),  // Detecta: CAPÍTULO 4...
-            Regex("UNIDAD\\s+\\d+", RegexOption.IGNORE_CASE),    // Detecta: UNIDAD 2...
-            Regex(
-                "\\n1\\.\\s+[A-ZÁÉÍÓÚÑ]",
-                RegexOption.IGNORE_CASE
-            ) // Detecta: "1. INTRODUCCIÓN" (Genérico)
+            Regex("TEMA\\s+\\d+", RegexOption.IGNORE_CASE),
+            Regex("MÓDULO\\s+\\d+", RegexOption.IGNORE_CASE),
+            Regex("CAPÍTULO\\s+\\d+", RegexOption.IGNORE_CASE),
+            Regex("UNIDAD\\s+\\d+", RegexOption.IGNORE_CASE)
         )
 
-        // Buscamos en las primeras 15 páginas (35.000 caracteres)
         val cabecera = textoLimpio.take(35000)
 
-        // A. Buscamos la palabra ÍNDICE primero
+        // Buscar índice
         val posIndice = cabecera.indexOf("ÍNDICE", ignoreCase = true)
-        val posTablaCont = cabecera.indexOf("TABLA DE CONTENIDOS", ignoreCase = true)
+        val posTabla = cabecera.indexOf("TABLA DE CONTENIDOS", ignoreCase = true)
+        val puntoDeCorte = if (posIndice != -1) posIndice else posTabla
 
-        // El punto de corte inicial será donde esté el índice (si existe)
-        var puntoDeCorte =
-            if (posIndice != -1) posIndice else if (posTablaCont != -1) posTablaCont else -1
-
-        // B. ESTRATEGIA DE SALTO:
-        // Si hay índice, buscamos el primer "TEMA X" o "1. X" que aparezca DESPUÉS del índice.
-        // Si no hay índice, buscamos el primer "TEMA X" que aparezca en el documento.
-
+        // Estrategia: Buscar "TEMA X" después del índice
         val inicioBusqueda = if (puntoDeCorte != -1) puntoDeCorte + 100 else 0
 
         for (patron in patronesInicio) {
-            // Buscamos el patrón (ej: "TEMA 10")
             val match = patron.find(cabecera, startIndex = inicioBusqueda)
-
             if (match != null) {
-                // ¡Encontrado! Este es el inicio real del temario.
-                // Devolvemos el texto desde aquí, ignorando todo lo anterior (portadas e índice).
-                Log.d(
-                    "Procesador",
-                    "Inicio detectado: '${match.value}' en pos ${match.range.first}"
-                )
                 return textoLimpio.substring(match.range.first)
             }
         }
 
-        // C. Fallback: Si no encontramos "TEMA X" después del índice, pero había índice...
+        // Fallback: Si había índice pero no encontramos TEMA X, cortar después del índice
         if (puntoDeCorte != -1) {
-            // Cortamos justo después del índice más un margen de seguridad (ej: 2000 letras)
-            // para intentar saltarnos la lista de capítulos.
             val saltoSeguridad = minOf(puntoDeCorte + 2000, textoLimpio.length)
             return textoLimpio.substring(saltoSeguridad)
         }
 
-        // D. Si no encontramos nada, devolvemos el texto (ya limpio de la palabra "Ucademy")
         return textoLimpio
     }
 
