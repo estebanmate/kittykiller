@@ -1,12 +1,14 @@
 package com.emtp.kittykiller
 
 import android.content.Context
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 
 data class SesionGuardada(
     val nombreArchivo: String,
     val indice: Int,
-    val aciertos: Int, // Placeholder as GestorPersistencia doesn't seem to save aciertos/fallos yet
-    val fallos: Int,   // Placeholder
+    val aciertos: Int,
+    val fallos: Int,
     val preguntas: List<Pregunta>
 )
 
@@ -15,6 +17,10 @@ object QuizRepository {
     var indiceActual: Int = 0
     var esModoTeoria: Boolean = false
     var nombreArchivoOriginal: String = "test_sin_nombre"
+
+    // New statistics properties
+    var aciertos: Int = 0
+    var preguntasFalladas: MutableList<Pregunta> = mutableListOf()
 
     // Backing properties for compatibility with MainActivity usages
     var preguntasActuales: List<Pregunta>
@@ -28,8 +34,6 @@ object QuizRepository {
         get() = textoTeoriaParaAudio
         set(value) { textoTeoriaParaAudio = value }
 
-    // Context reference if needed, though usually repositories shouldn't hold context.
-    // MainActivity calls inicializar(this), so we add it.
     private var context: Context? = null
 
     fun inicializar(context: Context) {
@@ -38,6 +42,8 @@ object QuizRepository {
 
     fun reiniciar() {
         indiceActual = 0
+        aciertos = 0
+        preguntasFalladas.clear()
         // No reiniciamos el nombre ni el texto de audio aquí
     }
 
@@ -47,24 +53,14 @@ object QuizRepository {
         val nombres = GestorPersistencia.obtenerListaTests(ctx)
         val sesiones = mutableListOf<SesionGuardada>()
 
-        // We need to load each session to get details. This might be slow but it's what was requested.
-        // However, GestorPersistencia only exposes names via obtenerListaTests.
-        // And `cargarProgreso` loads into the Repository directly.
-        // We need a way to peek at the data without overwriting the repository state,
-        // OR we just return basic info.
-
-        // MainActivity expects: nombreArchivo, indice, aciertos, fallos, preguntas.
-        // GestorPersistencia stores: preguntas, indiceActual, nombreArchivo.
-        // Aciertos/Fallos are NOT stored in EstadoExamen in GestorPersistencia currently!
-
-        // We will just return the names and load the rest if possible, or refactor GestorPersistencia.
-        // For now, let's try to reconstruct what we can.
-
-        // Note: GestorPersistencia.obtenerListaTests only returns names.
-        // To get details we need to read the prefs.
         val sharedPreferences = ctx.getSharedPreferences("OposicionesPrefs", Context.MODE_PRIVATE)
-        val gson = com.google.gson.Gson()
-        val tipo = object : com.google.gson.reflect.TypeToken<EstadoExamen>() {}.type
+        val gson = Gson()
+        // We use the Type for EstadoExamen.
+        // Note: We need to reference the EstadoExamen class.
+        // Since it's in GestorPersistencia.kt, we assume it's accessible.
+        // However, EstadoExamen is defined in GestorPersistencia.kt file, but outside the object?
+        // Let's check imports. It's in the same package.
+        val tipo = object : TypeToken<EstadoExamen>() {}.type
 
         for (nombre in nombres) {
             val json = sharedPreferences.getString("EXAMEN_$nombre", null)
@@ -74,8 +70,8 @@ object QuizRepository {
                     sesiones.add(SesionGuardada(
                         nombreArchivo = estado.nombreArchivo,
                         indice = estado.indiceActual,
-                        aciertos = 0, // Not saved
-                        fallos = 0,   // Not saved
+                        aciertos = estado.aciertos,
+                        fallos = estado.preguntasFalladas.size,
                         preguntas = estado.preguntas
                     ))
                 } catch (e: Exception) {

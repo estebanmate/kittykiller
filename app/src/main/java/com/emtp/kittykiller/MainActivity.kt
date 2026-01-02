@@ -225,7 +225,7 @@ class MainActivity : AppCompatActivity() {
     private fun iniciarExamen(preguntas: List<Pregunta>) {
         QuizRepository.preguntasActuales = preguntas
         // Reset progress when starting new
-        QuizRepository.indiceActual = 0
+        QuizRepository.reiniciar() // This now resets indices and stats
 
         val intent = Intent(this, PreguntaActivity::class.java)
         startActivity(intent)

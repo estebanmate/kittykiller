@@ -29,9 +29,9 @@ class PreguntaActivity : AppCompatActivity() {
 
     private lateinit var preguntaActual: Pregunta
 
-    // ESTADÍSTICAS DE LA SESIÓN
-    private var aciertos = 0
-    private var preguntasFalladas = mutableListOf<Pregunta>()
+    // ESTADÍSTICAS DE LA SESIÓN: Now using QuizRepository directly
+    // private var aciertos = 0 // Removed local state
+    // private var preguntasFalladas = mutableListOf<Pregunta>() // Removed local state
 
     // Control de estado de la pregunta actual
     private var falloEnPreguntaActual = false // Para contar solo 1 fallo
@@ -62,6 +62,7 @@ class PreguntaActivity : AppCompatActivity() {
 
         // Botón Guardar y Salir
         btnGuardarSalir.setOnClickListener {
+            // Stats are in QuizRepository, so GestorPersistencia will pick them up
             GestorPersistencia.guardarProgreso(this)
             Toast.makeText(this, "Progreso guardado", Toast.LENGTH_SHORT).show()
             finish()
@@ -72,17 +73,15 @@ class PreguntaActivity : AppCompatActivity() {
             if (!haAcertado) {
                 // Si salta, cuenta como fallo
                 if (!falloEnPreguntaActual) {
-                    preguntasFalladas.add(preguntaActual)
+                    QuizRepository.preguntasFalladas.add(preguntaActual)
                 }
                 avanzarPregunta()
             }
         }
 
-        // Inicializar contadores si es el inicio del test
-        if (QuizRepository.indiceActual == 0) {
-            aciertos = 0
-            preguntasFalladas.clear()
-        }
+        // Note: We do NOT reset stats here anymore.
+        // Logic for reset happens in MainActivity when starting a NEW exam,
+        // or implicitly when loading an existing one (which overwrites them).
 
         cargarPregunta()
     }
@@ -142,7 +141,7 @@ class PreguntaActivity : AppCompatActivity() {
             // Solo sumamos acierto si acertó a la primera (sin fallos previos en esta pregunta)
             // Opcional: Si prefieres que cuente siempre, quita el 'if'.
             if (!falloEnPreguntaActual) {
-                aciertos++
+                QuizRepository.aciertos++
             }
 
             pintarBoton(botonSeleccionado, true)
@@ -169,7 +168,7 @@ class PreguntaActivity : AppCompatActivity() {
 
             // Registramos el fallo solo la primera vez que se equivoca en esta pregunta
             if (!falloEnPreguntaActual) {
-                preguntasFalladas.add(preguntaActual)
+                QuizRepository.preguntasFalladas.add(preguntaActual)
                 falloEnPreguntaActual = true
             }
 
@@ -188,13 +187,13 @@ class PreguntaActivity : AppCompatActivity() {
 
     private fun mostrarResultadosFinales() {
         val total = QuizRepository.preguntas.size
-        val fallos = preguntasFalladas.size
+        val fallos = QuizRepository.preguntasFalladas.size
 
         val builder = AlertDialog.Builder(this)
         builder.setTitle("Examen Finalizado")
         builder.setMessage(
             "Estadísticas:\n\n" +
-                    "✅ Aciertos (a la primera): $aciertos\n" +
+                    "✅ Aciertos (a la primera): ${QuizRepository.aciertos}\n" +
                     "❌ Preguntas con fallos: $fallos\n" +
                     "Total: $total"
         )
@@ -214,10 +213,9 @@ class PreguntaActivity : AppCompatActivity() {
     }
 
     private fun reintentarFalladas() {
-        QuizRepository.preguntas = preguntasFalladas.toList()
-        QuizRepository.reiniciar()
-        aciertos = 0
-        preguntasFalladas.clear()
+        // Here we modify the repository state for the retry session
+        QuizRepository.preguntas = QuizRepository.preguntasFalladas.toList()
+        QuizRepository.reiniciar() // Resets index, aciertos, and falladas
         cargarPregunta()
         Toast.makeText(this, "Repasando errores", Toast.LENGTH_SHORT).show()
     }

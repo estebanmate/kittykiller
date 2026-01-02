@@ -8,7 +8,9 @@ import com.google.gson.reflect.TypeToken
 data class EstadoExamen(
     val preguntas: List<Pregunta>,
     val indiceActual: Int,
-    val nombreArchivo: String
+    val nombreArchivo: String,
+    val aciertos: Int = 0,
+    val preguntasFalladas: List<Pregunta> = emptyList()
 )
 
 object GestorPersistencia {
@@ -20,7 +22,9 @@ object GestorPersistencia {
         val estado = EstadoExamen(
             preguntas = QuizRepository.preguntas,
             indiceActual = QuizRepository.indiceActual,
-            nombreArchivo = QuizRepository.nombreArchivoOriginal
+            nombreArchivo = QuizRepository.nombreArchivoOriginal,
+            aciertos = QuizRepository.aciertos,
+            preguntasFalladas = QuizRepository.preguntasFalladas
         )
 
         val json = gson.toJson(estado)
@@ -57,6 +61,11 @@ object GestorPersistencia {
             QuizRepository.preguntas = estado.preguntas
             QuizRepository.indiceActual = estado.indiceActual
             QuizRepository.nombreArchivoOriginal = estado.nombreArchivo
+
+            // Restore stats
+            QuizRepository.aciertos = estado.aciertos
+            QuizRepository.preguntasFalladas = estado.preguntasFalladas.toMutableList()
+
             return true
         } catch (e: Exception) {
             e.printStackTrace()
