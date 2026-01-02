@@ -21,15 +21,15 @@ object MotorIA {
                 return@withContext false
             }
 
+            // Aumentamos un poco la temperatura para favorecer la creatividad en las opciones falsas
             val options = LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(modelFile.absolutePath)
                 .setMaxTokens(1024)
-                .setTemperature(0.7f)
+                .setTemperature(0.8f) // Subimos de 0.7 a 0.8 para menos repetición
                 .setTopK(40)
                 .build()
 
             try {
-                // Carga pesada en RAM
                 llmInference = LlmInference.createFromOptions(context, options)
                 estaCargado = true
                 true
@@ -44,49 +44,52 @@ object MotorIA {
         return withContext(Dispatchers.IO) {
             if (llmInference == null) return@withContext "Error: IA no inicializada."
 
-            // 1. ESTRATEGIA DE "SALTO DE ÍNDICE"
-            // Si el texto empieza por "ÍNDICE", nos saltamos los primeros 1500 caracteres
-            // (que suelen ser la tabla de contenidos) para llegar al temario real.
-            var inicioTexto = 0
-            if (textoTeoria.trim().startsWith("ÍNDICE", ignoreCase = true) ||
-                textoTeoria.trim().startsWith("INDICE", ignoreCase = true)
-            ) {
-                inicioTexto = 1500
-            }
+            // Limpieza de espacios para ahorrar tokens
+            val contextoLimpio = textoTeoria.replace(Regex("\\s+"), " ").trim()
 
-            minOf(inicioTexto + 2500, textoTeoria.length)
-            val contextoRecortado = textoTeoria.replace(Regex("\\s+"), " ")
-
-            // 2. PROMPT REFORZADO (ONE-SHOT)
-            // Le obligamos a generar opciones inventadas si no las sabe, pero respetando el formato.
+            // PROMPT ENGINEERING AVANZADO (Chain-of-Thought implícito + Restricciones Fuertes)
             val prompt = """
 <start_of_turn>user
-Eres un profesor de sanidad. Basándote en el siguiente texto, crea $cantidad preguntas de examen tipo test.
+Actúa como un experto redactor de exámenes de oposiciones sanitarias (TCAE). 
+Tu tarea es generar un examen tipo test de alta dificultad basado EXCLUSIVAMENTE en el texto proporcionado abajo.
 
-IMPORTANTE:
-- Cada pregunta DEBE tener 4 opciones (a, b, c, d).
-- Si el texto no es suficiente, invéntate opciones plausibles relacionadas con el tema.
-- NO hagas listas ni resúmenes. Solo preguntas tipo test completas.
+INSTRUCCIONES DE OBLIGADO CUMPLIMIENTO:
+1. Genera exactamente $cantidad preguntas.
+2. **ALEATORIEDAD RADICAL**: La respuesta correcta NO puede ser siempre la 'a'. Debes distribuir las soluciones equitativamente entre a, b, c y d.
+3. **CALIDAD DE OPCIONES**: Las opciones incorrectas (distractores) deben ser muy plausibles y estar relacionadas con el texto. No uses opciones absurdas como "Ninguna es correcta" salvo que sea estrictamente necesario.
+4. **FORMATO**: Sigue estrictamente la estructura para que el sistema pueda leerlo.
 
-TEXTO:
-"$contextoRecortado"
+TEXTO DE ESTUDIO:
+"$contextoLimpio"
 
-FORMATO OBLIGATORIO (Úsalo para cada pregunta):
-1. [Enunciado de la pregunta]
-a) [Opción A]
-b) [Opción B]
-c) [Opción C]
-d) [Opción D]
-Solución: [letra]
+FORMATO DE SALIDA REQUERIDO:
+1. [Enunciado claro y conciso]
+a) [Opción posible 1]
+b) [Opción posible 2]
+c) [Opción posible 3]
+d) [Opción posible 4]
+Solución: [a/b/c/d]
 
-Genera las preguntas ahora:
+Ejemplo de lo que espero:
+1. ¿Cuál es la función principal de los leucocitos?
+a) Transporte de oxígeno
+b) Coagulación sanguínea
+c) Defensa del organismo
+d) Producción de hormonas
+Solución: c
+
+¡Empieza a generar las preguntas ahora!
 <end_of_turn>
 <start_of_turn>model
 """.trimIndent()
 
             try {
                 val respuesta = llmInference?.generateResponse(prompt) ?: "Error IA"
-                android.util.Log.d("IA_RAW", "Respuesta Gemma: $respuesta")
+                // Log para depuración
+                android.util.Log.d(
+                    "IA_RAW",
+                    "Prompt length: ${prompt.length} | Respuesta: ${respuesta.take(100)}..."
+                )
                 respuesta
             } catch (e: Exception) {
                 "Excepción IA: ${e.message}"

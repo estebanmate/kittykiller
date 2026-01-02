@@ -1,149 +1,139 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#F5F5F5"
-    android:orientation="vertical">
+    android:background="#121212"
+    android:padding="16dp"
+    tools:context=".PreguntaActivity">
 
-    <androidx.constraintlayout.widget.ConstraintLayout
+    <LinearLayout
+        android:id="@+id/headerLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#FFFFFF"
-        android:elevation="4dp"
-        android:padding="12dp">
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        app:layout_constraintTop_toTopOf="parent">
 
         <Button
             android:id="@+id/btnGuardarSalir"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:backgroundTint="#FF9800"
-            android:text="Guardar/Salir"
-            android:textSize="12sp"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
+            android:text="Guardar"
+            android:textColor="@android:color/white"
+            android:textSize="12sp" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
 
         <TextView
             android:id="@+id/tvContadorHeader"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="1 / 50"
-            android:textColor="#333"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toStartOf="@id/btnSaltar"
-            app:layout_constraintStart_toEndOf="@id/btnGuardarSalir"
-            app:layout_constraintTop_toTopOf="parent" />
+            android:layout_marginEnd="16dp"
+            android:text="1 / 20"
+            android:textColor="#B0BEC5"
+            android:textSize="16sp"
+            android:textStyle="bold" />
 
         <Button
             android:id="@+id/btnSaltar"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:backgroundTint="#2196F3"
-            android:text="Saltar >"
-            android:textSize="12sp"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
+            android:layout_height="40dp"
+            android:backgroundTint="#607D8B"
+            android:text="Saltar"
+            android:textColor="@android:color/white"
+            android:textSize="12sp" />
+    </LinearLayout>
 
-    </androidx.constraintlayout.widget.ConstraintLayout>
+    <TextView
+        android:id="@+id/tvEnunciado"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:background="#5D4037"
+        android:gravity="center"
+        android:padding="20dp"
+        android:text="Cargando pregunta..."
+        android:textColor="@android:color/white"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/headerLayout" />
 
-    <ScrollView
-        android:layout_width="match_parent"
+    <TextView
+        android:id="@+id/tvFeedback"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="¡Correcto!"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:visibility="invisible"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/tvEnunciado" />
+
+    <LinearLayout
+        android:id="@+id/layoutOpciones"
+        android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:fillViewport="true"
-        android:padding="16dp">
+        android:layout_marginTop="16dp"
+        android:gravity="center_vertical"
+        android:orientation="vertical"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/tvFeedback">
 
-        <LinearLayout
+        <Button
+            android:id="@+id/btnOpA"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical">
+            android:layout_marginBottom="12dp"
+            android:backgroundTint="#FFFFFF"
+            android:padding="14dp"
+            android:text="Opción A"
+            android:textColor="#000000"
+            android:textSize="16sp" />
 
-            <androidx.cardview.widget.CardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:layout_marginBottom="24dp"
-                app:cardCornerRadius="12dp"
-                app:cardElevation="2dp">
+        <Button
+            android:id="@+id/btnOpB"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:backgroundTint="#FFFFFF"
+            android:padding="14dp"
+            android:text="Opción B"
+            android:textColor="#000000"
+            android:textSize="16sp" />
 
-                <TextView
-                    android:id="@+id/tvEnunciado"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@color/cardview_light_background"
-                    android:lineSpacingExtra="4dp"
-                    android:padding="24dp"
-                    android:text="Cargando pregunta..."
-                    android:textColor="#000000"
-                    android:textSize="18sp" />
-            </androidx.cardview.widget.CardView>
+        <Button
+            android:id="@+id/btnOpC"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:backgroundTint="#FFFFFF"
+            android:padding="14dp"
+            android:text="Opción C"
+            android:textColor="#000000"
+            android:textSize="16sp" />
 
-            <Button
-                android:id="@+id/btnOpA"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:padding="16dp"
-                android:text="A) Opción 1"
-                android:textAlignment="viewStart"
-                android:textColor="#000000" />
+        <Button
+            android:id="@+id/btnOpD"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:backgroundTint="#FFFFFF"
+            android:padding="14dp"
+            android:text="Opción D"
+            android:textColor="#000000"
+            android:textSize="16sp" />
+    </LinearLayout>
 
-            <Button
-                android:id="@+id/btnOpB"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:padding="16dp"
-                android:text="B) Opción 2"
-                android:textAlignment="viewStart"
-                android:textColor="#000000" />
-
-            <Button
-                android:id="@+id/btnOpC"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:padding="16dp"
-                android:text="C) Opción 3"
-                android:textAlignment="viewStart"
-                android:textColor="#000000" />
-
-            <Button
-                android:id="@+id/btnOpD"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="24dp"
-                android:padding="16dp"
-                android:text="D) Opción 4"
-                android:textAlignment="viewStart"
-                android:textColor="#000000" />
-
-            <TextView
-                android:id="@+id/tvFeedback"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
-                android:text="¡Correcto!"
-                android:textAlignment="center"
-                android:textSize="18sp"
-                android:textStyle="bold"
-                android:visibility="invisible" />
-
-            <Button
-                android:id="@+id/btnSiguiente"
-                android:layout_width="match_parent"
-                android:layout_height="60dp"
-                android:backgroundTint="#6200EE"
-                android:text="SIGUIENTE PREGUNTA"
-                android:visibility="invisible" />
-        </LinearLayout>
-    </ScrollView>
-</LinearLayout>
+</androidx.constraintlayout.widget.ConstraintLayout>

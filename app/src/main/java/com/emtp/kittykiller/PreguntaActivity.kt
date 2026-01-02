@@ -25,7 +25,6 @@ class PreguntaActivity : AppCompatActivity() {
     private lateinit var btnOpB: Button
     private lateinit var btnOpC: Button
     private lateinit var btnOpD: Button
-    private lateinit var btnSiguiente: Button
     private lateinit var tvFeedback: TextView
 
     private lateinit var preguntaActual: Pregunta
@@ -33,7 +32,10 @@ class PreguntaActivity : AppCompatActivity() {
     // ESTADÍSTICAS DE LA SESIÓN
     private var aciertos = 0
     private var preguntasFalladas = mutableListOf<Pregunta>()
-    private var haRespondido = false // Para bloquear doble click
+
+    // Control de estado de la pregunta actual
+    private var falloEnPreguntaActual = false // Para contar solo 1 fallo
+    private var haAcertado = false // Para bloquear interacciones tras acertar
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,7 +51,6 @@ class PreguntaActivity : AppCompatActivity() {
         btnOpB = findViewById(R.id.btnOpB)
         btnOpC = findViewById(R.id.btnOpC)
         btnOpD = findViewById(R.id.btnOpD)
-        btnSiguiente = findViewById(R.id.btnSiguiente)
         tvFeedback = findViewById(R.id.tvFeedback)
 
         val opciones = listOf(btnOpA, btnOpB, btnOpC, btnOpD)
@@ -68,20 +69,16 @@ class PreguntaActivity : AppCompatActivity() {
 
         // Botón Saltar
         btnSaltar.setOnClickListener {
-            // Si salta, cuenta como fallo o neutro.
-            // En este caso, la añadimos a falladas para poder repasarla luego.
-            if (!haRespondido) {
-                preguntasFalladas.add(preguntaActual)
+            if (!haAcertado) {
+                // Si salta, cuenta como fallo
+                if (!falloEnPreguntaActual) {
+                    preguntasFalladas.add(preguntaActual)
+                }
                 avanzarPregunta()
             }
         }
 
-        // El botón siguiente ahora es manual (por si alguien no quiere esperar los 3.5s)
-        btnSiguiente.setOnClickListener {
-            if (haRespondido) avanzarPregunta()
-        }
-
-        // Inicializar contadores si es el inicio del test (índice 0)
+        // Inicializar contadores si es el inicio del test
         if (QuizRepository.indiceActual == 0) {
             aciertos = 0
             preguntasFalladas.clear()
@@ -98,7 +95,10 @@ class PreguntaActivity : AppCompatActivity() {
         }
 
         preguntaActual = QuizRepository.preguntas[QuizRepository.indiceActual]
-        haRespondido = false
+
+        // Reseteamos estados para la nueva pregunta
+        falloEnPreguntaActual = false
+        haAcertado = false
 
         // Actualizar Header
         val total = QuizRepository.preguntas.size
@@ -114,19 +114,15 @@ class PreguntaActivity : AppCompatActivity() {
 
         // Resetear UI
         resetearEstilosBotones()
-        btnSiguiente.visibility = View.INVISIBLE
         tvFeedback.visibility = View.INVISIBLE
         btnSaltar.isEnabled = true
 
-        // Desbloquear botones
+        // Habilitar todos los botones
         listOf(btnOpA, btnOpB, btnOpC, btnOpD).forEach { it.isEnabled = true }
     }
 
     private fun validarRespuesta(botonSeleccionado: Button) {
-        if (haRespondido) return
-        haRespondido = true
-
-        bloquearBotones() // Evitar pulsar otra mientras esperamos
+        if (haAcertado) return // Evitar pulsaciones si ya acertó y está esperando
 
         val letraSeleccionada = when (botonSeleccionado.id) {
             R.id.btnOpA -> "a"
@@ -141,29 +137,43 @@ class PreguntaActivity : AppCompatActivity() {
 
         if (esCorrecta) {
             // --- ACIERTO ---
-            aciertos++
+            haAcertado = true
+
+            // Solo sumamos acierto si acertó a la primera (sin fallos previos en esta pregunta)
+            // Opcional: Si prefieres que cuente siempre, quita el 'if'.
+            if (!falloEnPreguntaActual) {
+                aciertos++
+            }
+
             pintarBoton(botonSeleccionado, true)
             mostrarFeedback("¡CORRECTO!", true)
+
+            // Bloqueamos todo para que espere
+            bloquearBotones()
+            btnSaltar.isEnabled = false
+
+            // Pausa de 3.5 segundos y avance automático
+            lifecycleScope.launch {
+                delay(3500)
+                if (!isFinishing && !isDestroyed) {
+                    avanzarPregunta()
+                }
+            }
+
         } else {
             // --- FALLO ---
-            preguntasFalladas.add(preguntaActual)
-            pintarBoton(botonSeleccionado, false) // Rojo al seleccionado
+            pintarBoton(botonSeleccionado, false) // Rojo al fallado
+            botonSeleccionado.isEnabled = false   // Desactivamos ESE botón
 
-            // Marcar la correcta en verde para que aprenda
-            resaltarRespuestaCorrecta()
-            mostrarFeedback("Incorrecto", false)
-        }
+            mostrarFeedback("Incorrecto, prueba otra vez", false)
 
-        // Programar avance automático en 3.5 segundos
-        btnSiguiente.visibility = View.VISIBLE // Aparece por si quiere ir más rápido
-        btnSaltar.isEnabled = false
-
-        lifecycleScope.launch {
-            delay(3500) // Espera de 3.5 segundos
-            // Verificamos que la actividad siga viva antes de avanzar
-            if (!isFinishing && !isDestroyed) {
-                avanzarPregunta()
+            // Registramos el fallo solo la primera vez que se equivoca en esta pregunta
+            if (!falloEnPreguntaActual) {
+                preguntasFalladas.add(preguntaActual)
+                falloEnPreguntaActual = true
             }
+
+            // NO AVANZAMOS: El usuario debe seguir intentándolo
         }
     }
 
@@ -184,8 +194,8 @@ class PreguntaActivity : AppCompatActivity() {
         builder.setTitle("Examen Finalizado")
         builder.setMessage(
             "Estadísticas:\n\n" +
-                    "✅ Aciertos: $aciertos\n" +
-                    "❌ Fallos/Saltos: $fallos\n" +
+                    "✅ Aciertos (a la primera): $aciertos\n" +
+                    "❌ Preguntas con fallos: $fallos\n" +
                     "Total: $total"
         )
 
@@ -193,57 +203,35 @@ class PreguntaActivity : AppCompatActivity() {
             finish()
         }
 
-        // Si hay fallos, ofrecemos reintentar
         if (fallos > 0) {
             builder.setNeutralButton("Reintentar Fallos") { _, _ ->
                 reintentarFalladas()
             }
         }
 
-        builder.setCancelable(false) // Obligar a elegir
+        builder.setCancelable(false)
         builder.show()
     }
 
     private fun reintentarFalladas() {
-        // Cargar solo las preguntas falladas en el repositorio
-        QuizRepository.preguntas = preguntasFalladas.toList() // Copia
-        QuizRepository.reiniciar() // Índice a 0
-
-        // Reiniciar contadores locales
+        QuizRepository.preguntas = preguntasFalladas.toList()
+        QuizRepository.reiniciar()
         aciertos = 0
         preguntasFalladas.clear()
-
-        Toast.makeText(
-            this,
-            "Repasando ${QuizRepository.preguntas.size} preguntas falladas",
-            Toast.LENGTH_SHORT
-        ).show()
-        cargarPregunta() // Recargar actividad con la nueva lista
+        cargarPregunta()
+        Toast.makeText(this, "Repasando errores", Toast.LENGTH_SHORT).show()
     }
 
     // --- UTILS VISUALES ---
 
     private fun pintarBoton(btn: Button, esAcierto: Boolean) {
         if (esAcierto) {
-            btn.setBackgroundColor(Color.parseColor("#4CAF50")) // Verde Material
+            btn.setBackgroundColor(Color.parseColor("#4CAF50")) // Verde
             btn.setTextColor(Color.WHITE)
         } else {
-            btn.setBackgroundColor(Color.parseColor("#F44336")) // Rojo Material
+            btn.setBackgroundColor(Color.parseColor("#F44336")) // Rojo
             btn.setTextColor(Color.WHITE)
         }
-    }
-
-    private fun resaltarRespuestaCorrecta() {
-        // Busca cuál botón tiene la letra correcta y lo pinta de verde
-        val letraCorrecta = preguntaActual.respuestaCorrecta.trim().lowercase()
-        val botonCorrecto = when (letraCorrecta) {
-            "a" -> btnOpA
-            "b" -> btnOpB
-            "c" -> btnOpC
-            "d" -> btnOpD
-            else -> null
-        }
-        botonCorrecto?.let { pintarBoton(it, true) }
     }
 
     private fun mostrarFeedback(texto: String, positivo: Boolean) {
@@ -255,7 +243,7 @@ class PreguntaActivity : AppCompatActivity() {
     private fun resetearEstilosBotones() {
         val botones = listOf(btnOpA, btnOpB, btnOpC, btnOpD)
         botones.forEach {
-            it.setBackgroundColor(Color.WHITE) // O el color de fondo por defecto de tu tema
+            it.setBackgroundColor(Color.WHITE)
             it.setTextColor(Color.BLACK)
         }
     }

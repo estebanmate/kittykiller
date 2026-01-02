@@ -29,7 +29,7 @@ object GestorPersistencia {
         with(sharedPreferences.edit()) {
             // Guardamos con el nombre del archivo como CLAVE
             putString("EXAMEN_${QuizRepository.nombreArchivoOriginal}", json)
-            // Guardamos también cuál fue el último para el botón "Retomar" rápido
+            // Guardamos también cuál fue el último para tener referencia si fuera necesario
             putString("ULTIMO_EXAMEN", QuizRepository.nombreArchivoOriginal)
             apply()
         }
@@ -53,7 +53,7 @@ object GestorPersistencia {
             val tipo = object : TypeToken<EstadoExamen>() {}.type
             val estado: EstadoExamen = gson.fromJson(json, tipo)
 
-            // Restaurar repositorio
+            // Restaurar repositorio con el estado guardado
             QuizRepository.preguntas = estado.preguntas
             QuizRepository.indiceActual = estado.indiceActual
             QuizRepository.nombreArchivoOriginal = estado.nombreArchivo
@@ -62,5 +62,23 @@ object GestorPersistencia {
             e.printStackTrace()
             return false
         }
+    }
+
+    // --- NUEVA FUNCIÓN: Obtener lista de tests guardados ---
+    fun obtenerListaTests(context: Context): List<String> {
+        val sharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val todosLosDatos = sharedPreferences.all
+        val listaNombres = mutableListOf<String>()
+
+        // Recorremos todas las claves guardadas
+        for (clave in todosLosDatos.keys) {
+            // Filtramos solo las que empiezan por nuestro prefijo de examen
+            if (clave.startsWith("EXAMEN_")) {
+                // Quitamos el prefijo "EXAMEN_" para mostrar solo el nombre real al usuario
+                val nombreReal = clave.removePrefix("EXAMEN_")
+                listaNombres.add(nombreReal)
+            }
+        }
+        return listaNombres
     }
 }
