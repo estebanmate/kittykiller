@@ -35,6 +35,20 @@ fun CloudPreguntaDto.toPreguntaDominio(): Pregunta {
         opcionB = opB,
         opcionC = opC,
         opcionD = opD,
-        solucion = this.respuestaCorrecta.lowercase() // Tu app espera "a", "b", etc.
+        solucion = this.respuestaCorrecta.let { raw ->
+            // Buscamos explícitamente una letra aislada o al principio: "A", "a)", "Respuesta: A"
+            // Primero intentamos match estricto de letra única
+            val regexLetra = Regex("^[a-dA-D]$")
+            if (raw.trim().matches(regexLetra)) {
+                raw.trim().lowercase()
+            } else {
+                // Si viene con basura ("A) Madrid", "Respuesta Correcta: B"), buscamos la primera letra válida
+                val match = Regex("([a-dA-D])([).:]|$)").find(raw)
+                    ?: Regex("(?:^|\\s)([a-dA-D])(?:$|\\s)").find(raw)
+                
+                // Si encontramos letra, la usamos. Si no, fallback a "a" (o loguear error)
+                match?.groupValues?.get(1)?.lowercase() ?: "a"
+            }
+        }
     )
 }
