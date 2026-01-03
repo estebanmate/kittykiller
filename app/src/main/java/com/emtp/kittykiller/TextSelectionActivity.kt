@@ -2,9 +2,6 @@ package com.emtp.kittykiller
 
 import android.content.Intent
 import android.os.Bundle
-import android.text.Spannable
-import android.text.SpannableString
-import android.text.style.BackgroundColorSpan
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -16,7 +13,7 @@ class TextSelectionActivity : AppCompatActivity() {
     private lateinit var tvTextoDocumento: TextView
     private lateinit var tvEstadoSeleccion: TextView
     private lateinit var btnConfirmarSeleccion: Button
-    
+
     private var textoCompleto: String = ""
     private var cantidadPreguntas: Int = 20
 
@@ -49,12 +46,19 @@ class TextSelectionActivity : AppCompatActivity() {
         }
 
         // Monitorear cambios en la selección
-        tvTextoDocumento.setCustomSelectionActionModeCallback(object : android.view.ActionMode.Callback {
-            override fun onCreateActionMode(mode: android.view.ActionMode?, menu: android.view.Menu?): Boolean {
+        tvTextoDocumento.customSelectionActionModeCallback = object :
+            android.view.ActionMode.Callback {
+            override fun onCreateActionMode(
+                mode: android.view.ActionMode?,
+                menu: android.view.Menu?
+            ): Boolean {
                 return true
             }
 
-            override fun onPrepareActionMode(mode: android.view.ActionMode?, menu: android.view.Menu?): Boolean {
+            override fun onPrepareActionMode(
+                mode: android.view.ActionMode?,
+                menu: android.view.Menu?
+            ): Boolean {
                 // Limpiar el menú por defecto
                 menu?.clear()
                 // Agregar nuestra opción personalizada
@@ -62,7 +66,10 @@ class TextSelectionActivity : AppCompatActivity() {
                 return true
             }
 
-            override fun onActionItemClicked(mode: android.view.ActionMode?, item: android.view.MenuItem?): Boolean {
+            override fun onActionItemClicked(
+                mode: android.view.ActionMode?,
+                item: android.view.MenuItem?
+            ): Boolean {
                 if (item?.itemId == 1) {
                     actualizarSeleccion()
                     mode?.finish()
@@ -75,7 +82,7 @@ class TextSelectionActivity : AppCompatActivity() {
                 // Actualizar estado cuando se cierra el modo de selección
                 actualizarSeleccion()
             }
-        })
+        }
 
         // Botón confirmar
         btnConfirmarSeleccion.setOnClickListener {
@@ -90,14 +97,19 @@ class TextSelectionActivity : AppCompatActivity() {
         if (start >= 0 && end > start) {
             val textoSeleccionado = textoCompleto.substring(start, end)
             val longitud = textoSeleccionado.length
-            
+
             tvEstadoSeleccion.text = "✓ Seleccionados $longitud caracteres"
-            tvEstadoSeleccion.setTextColor(ContextCompat.getColor(this, R.color.primary))
+            tvEstadoSeleccion.setTextColor(ContextCompat.getColor(this, R.color.text_primary))
             btnConfirmarSeleccion.isEnabled = longitud >= 100 // Mínimo 100 caracteres
-            
+
             if (longitud < 100) {
                 tvEstadoSeleccion.text = "⚠ Selección muy corta (mínimo 100 caracteres)"
-                tvEstadoSeleccion.setTextColor(ContextCompat.getColor(this, android.R.color.holo_orange_dark))
+                tvEstadoSeleccion.setTextColor(
+                    ContextCompat.getColor(
+                        this,
+                        android.R.color.holo_orange_dark
+                    )
+                )
             }
         } else {
             tvEstadoSeleccion.text = "Ningún texto seleccionado"
@@ -112,7 +124,7 @@ class TextSelectionActivity : AppCompatActivity() {
 
         if (start >= 0 && end > start) {
             val textoSeleccionado = textoCompleto.substring(start, end)
-            
+
             if (textoSeleccionado.length < 100) {
                 Toast.makeText(
                     this,

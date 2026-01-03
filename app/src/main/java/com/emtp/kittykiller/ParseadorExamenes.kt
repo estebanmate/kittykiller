@@ -281,4 +281,35 @@ object ParseadorExamenes {
         
         return mapa
     }
+
+    // Limpia líneas que se repiten frecuentemente (encabezados/pies de página)
+    private fun limpiarEncabezadosRecurrentes(texto: String): String {
+        val lineas = texto.lines()
+        val contadores = mutableMapOf<String, Int>()
+
+        // 1. Contar frecuencias
+        for (linea in lineas) {
+            val lineaLimpia = linea.trim()
+            // Solo consideramos líneas con cierta longitud para evitar borrar respuestas cortas (ej: "a)")
+            // y que no sean solo números (paginación simple "1", "2"...)
+            if (lineaLimpia.length > 5 && !lineaLimpia.all { it.isDigit() }) {
+                contadores[lineaLimpia] = contadores.getOrDefault(lineaLimpia, 0) + 1
+            }
+        }
+
+        // 2. Identificar candidatos a borrar
+        // Umbral: si aparece más de 3 veces, es sospechoso de ser un encabezado
+        val candidatosBorrar = contadores.filter { it.value > 3 }.keys
+
+        if (candidatosBorrar.isEmpty()) return texto
+
+        Log.d("Parseador", "Se eliminarán ${candidatosBorrar.size} patrones recurrentes: $candidatosBorrar")
+
+        // 3. Reconstruir texto filtrando
+        return lineas.filter {
+            val lineaLimpia = it.trim()
+            // Mantener si NO está en la lista negra (o si es corto/numérico y fue ignorado en el conteo)
+            !candidatosBorrar.contains(lineaLimpia)
+        }.joinToString("\n")
+    }
 }
