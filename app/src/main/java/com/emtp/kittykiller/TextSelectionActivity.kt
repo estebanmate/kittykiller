@@ -39,11 +39,7 @@ class TextSelectionActivity : AppCompatActivity() {
         // Mostrar texto
         tvTextoDocumento.text = textoCompleto
 
-        // Configurar listener de selección
-        tvTextoDocumento.setOnLongClickListener {
-            // El TextView ya maneja la selección automáticamente con textIsSelectable="true"
-            true
-        }
+
 
         // Monitorear cambios en la selección
         tvTextoDocumento.customSelectionActionModeCallback = object :

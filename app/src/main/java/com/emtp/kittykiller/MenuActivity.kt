@@ -304,7 +304,7 @@ class MenuActivity : AppCompatActivity() {
                 progressBar.visibility = View.VISIBLE
 
                 val promptSalida = MotorIA.generarPreguntas(textoTeoria, cantidadPreguntas)
-                val preguntas = ParseadorExamenes.parsearTexto(promptSalida)
+                val preguntas = MotorIA.parsearRespuestaIA(promptSalida)
 
                 progressBar.visibility = View.GONE
                 deshabilitarBotones(false)

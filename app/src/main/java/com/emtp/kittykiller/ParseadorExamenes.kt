@@ -8,10 +8,10 @@ object ParseadorExamenes {
     // PATRÓN MAESTRO: Detecta el inicio de una pregunta.
     // Estrategia:
     // 1. Número seguido de punto/paréntesis/guión (ej: "1.", "1)", "1-")
-    //    Ahora permite newlines opcionales después del punto (para formato Murcia: "1.\n\nTexto")
+    //    IMPORTANTE: Se añade negative lookahead (?!\d) para evitar que "40.2" se detecte como pregunta 40 (subapartados legales).
     // 2. O número seguido de espacio si después viene una Mayúscula (ej: "1 ¿Cuál...") para casos donde el OCR se come el punto.
     private val PATRON_INICIO_PREGUNTA = Pattern.compile(
-        "(?:^|\\n|\\s)(\\d{1,3})\\s?[\\.\\)\\-](?:\\s*\\n)?\\s*|(?:^|\\n)(\\d{1,3})\\s+(?=[A-Z¿¡])"
+        "(?:^|\\n|\\s)(\\d{1,3})\\s?[\\.\\)\\-](?!\\d)(?:\\s*\\n)?\\s*|(?:^|\\n)(\\d{1,3})\\s+(?=[A-Z¿¡])"
     )
 
     // PATRÓN OPCIONES: Detecta a), a., A), A. al inicio de línea o tras espacio
@@ -157,8 +157,8 @@ object ParseadorExamenes {
         }
         
         // C) LIMPIEZA FINAL: Eliminar cualquier texto de "Respuesta Correcta:" que haya quedado
-        // Esto puede ocurrir cuando la respuesta de la pregunta anterior se coló en este bloque
-        val regexLimpiarRespuesta = Regex("Respuesta\\s+Correcta:\\s*[a-dA-D].*", RegexOption.IGNORE_CASE)
+        // Mejorado: Regex más tolerante que acepta dos puntos y cualquier cosa después (no solo letra) hasta fin de línea
+        val regexLimpiarRespuesta = Regex("Respuesta\\s+Correcta[:.]?\\s*[a-dA-D].*", RegexOption.IGNORE_CASE)
         cA = regexLimpiarRespuesta.replace(cA, "").trim()
         cB = regexLimpiarRespuesta.replace(cB, "").trim()
         cC = regexLimpiarRespuesta.replace(cC, "").trim()
@@ -176,7 +176,7 @@ object ParseadorExamenes {
     private fun extraerRespuestasInline(texto: String): Map<String, String> {
         val mapa = mutableMapOf<String, String>()
         
-        // Patrón para encontrar "Respuesta Correcta: X", "Solución: X", "Sol: X"
+        // Patrón mejorado: acepta dos puntos opcionales. Ej: "Respuesta Correcta: C" o "Respuesta Correcta C"
         val regexRespuesta = Regex("(?:Respuesta\\s+Correcta|Soluci[óo]n|Sol)[.:]?\\s*([a-dA-D])(?![a-zA-Záéíóú])", RegexOption.IGNORE_CASE)
         
         // Encontrar todas las respuestas en el documento
@@ -213,30 +213,43 @@ object ParseadorExamenes {
 
     // Detector de tablas robusto (Tolera errores de OCR)
     private fun detectarTablaDeRespuestas(texto: String): Map<String, String> {
-        // Estrategia 1: Buscar tabla estructurada con encabezados (formato Murcia)
+        // Estrategia 1: Buscar tabla estructurada con encabezados (formato Murcia, Madrid, etc.)
         val tablaEstructurada = detectarTablaEstructurada(texto)
         if (tablaEstructurada.isNotEmpty()) {
             Log.d("Parseador", "Tabla estructurada detectada con ${tablaEstructurada.size} respuestas")
             return tablaEstructurada
         }
         
-        // Estrategia 2: Detección por patrón (formato original)
+        // Estrategia 2: Detección por patrón (formato original + mejoras)
         val mapa = mutableMapOf<String, String>()
         // Regex busca: Número + (espacios/puntos/guiones opcionales) + Letra
         // (?![a-zA-Z]) asegura que la letra no sea el inicio de una palabra (ej: "1 Año")
-        val regex = Regex("(\\d{1,3})[\\s\\.\\-]*([a-dA-D])(?![a-zA-Záéíóú])")
+        val regex = Regex("(\\d{1,3})[\\s\\.\\-\\/\\\\|]*([a-dA-D])(?![a-zA-Záéíóú])")
 
         val matches = regex.findAll(texto).toList()
 
         // Filtro de densidad:
-        // Si hay menos de 10 coincidencias en todo el texto, probablemente no sea una tabla válida
-        // o es un documento muy corto.
-        if (matches.size < 10) return emptyMap()
+        // Si hay menos de 5 coincidencias en todo el texto, probablemente no sea una tabla válida
+        if (matches.size < 5) return emptyMap()
 
-        // Analizamos si las coincidencias están agrupadas (típico de una tabla al final)
-        // o dispersas (típico de referencias en el texto "ver apartado 1 a").
-        // Para simplificar: Si detectamos muchas (>10), asumimos que las procesamos todas.
-        // En una tabla real, el último valor suele ser el correcto (si hay correcciones).
+        // Analizamos si las coincidencias están agrupadas ("Grid Detection")
+        // En una tabla de respuestas, las respuestas suelen estar cerca unas de otras.
+        // Si encontramos muchas respuestas en un rango corto de líneas (bloque denso), es una tabla.
+        
+        // Agrupamos por líneas para ver densidad
+        val lineasConMatches = matches.map { it.range.first }.sorted()
+        if (lineasConMatches.isNotEmpty()) {
+             val rangoTotal = lineasConMatches.last() - lineasConMatches.first()
+             // Densidad: matches / longitud del bloque. 
+             // Ajuste: si hay muchos matches (>20) confiamos en ellos aunque estén dispersos
+             // Si hay pocos, exigimos que estén juntos.
+             if (matches.size < 20 && rangoTotal > matches.size * 200) {
+                 // Dispersos: riesgo de falsos positivos en texto
+                 Log.d("Parseador", "Matches dispersos detectados, descartando probable tabla falsa.")
+                 return emptyMap()
+             }
+        }
+
         for (m in matches) {
             val num = m.groupValues[1]
             val letra = m.groupValues[2].lowercase()
@@ -252,9 +265,9 @@ object ParseadorExamenes {
         val mapa = mutableMapOf<String, String>()
         
         // Buscar encabezados de tabla (más flexible)
-        // Ejemplos: "NÚMERO PREGUNTA RESPUESTA CORRECTA", "NUM RESP CORRECTA", "PREG RESP"
+        // Ejemplos: "NÚMERO PREGUNTA RESPUESTA CORRECTA", "NUM RESP CORRECTA", "PREG RESP", "ORDEN EXAMEN", "PLANILLA"
         val headerPattern = Regex(
-            "(?:NÚMERO|N[UÚ]MERO|NUM|PREGUNTA|PREG)\\s+(?:PREGUNTA|RESPUESTA|RESP)?\\s*(?:RESPUESTA|RESP|CORRECTA|SOLUCION)?",
+            "(?:NÚMERO|N[UÚ]MERO|NUM|PREGUNTA|PREG|ORDEN|PLANILLA|SOLUCIONES|CLAVE)\\s+(?:PREGUNTA|RESPUESTA|RESP|EXAMEN)?\\s*(?:RESPUESTA|RESP|CORRECTA|SOLUCION)?",
             RegexOption.IGNORE_CASE
         )
         
@@ -264,12 +277,13 @@ object ParseadorExamenes {
              val startPos = match.range.last
              // Analizar las siguientes líneas buscando patrones de respuesta
              val tableText = texto.substring(startPos)
-             val lines = tableText.lines().take(100) // Limitar ventana
+             val lines = tableText.lines().take(150) // Limitar ventana (aumentada para tablas largas)
 
              for (line in lines) {
                  // Coincidir MÚLTIPLES pares en una misma línea (Tablas multicomuna)
-                 // Ej: "1-A   2-B   3-C" o "1 A   2 B"
-                 val rowPattern = Regex("(\\d{1,3})[\\s\\.\\-\\/\\\\]+([A-Da-d])(?:\\s+|$)")
+                 // Ej: "1-A   2-B   3-C" o "1 A   2 B" o "1. A" o "1/A"
+                 // Separadores: espacios, puntos, guiones, barras, pipes, tabs...
+                 val rowPattern = Regex("(\\d{1,3})[\\s\\.\\-\\/\\\\|]+([A-Da-d])(?:\\s+|$)")
                  val matchesRow = rowPattern.findAll(line)
                  
                  for (m in matchesRow) {
@@ -277,15 +291,26 @@ object ParseadorExamenes {
                      val letra = m.groupValues[2].lowercase()
                      mapa[num] = letra
                  }
+                 
+                 // FORMATO MADRID/ANDALUCIA COLUMNARES (Num ... Letra)
+                 // A veces los números y letras están separados por mucho espacio si son columnas alineadas
+                 // Ej: "1                     A"
+                 if (matchesRow.count() == 0) {
+                      val spacedRowPattern = Regex("^\\s*(\\d{1,3})\\s{4,}([A-Da-d])(?:\\s+|$)")
+                      val mSpaced = spacedRowPattern.find(line)
+                      if (mSpaced != null) {
+                           mapa[mSpaced.groupValues[1]] = mSpaced.groupValues[2].lowercase()
+                      }
+                 }
              }
         }
         
-        // Si no encontramos con headers, intentamos buscar bloques densos de respuestas al final
+        // Si no encontramos con headers, intentamos buscar bloques densos de respuestas al final ("Grid Detection Fallback")
         if (mapa.isEmpty()) {
-             // Estrategia de "Bloque final denso": mirar las últimas 50 líneas
-             val lines = texto.lines().takeLast(100)
+             // Estrategia de "Bloque final denso": mirar las últimas 100 líneas
+             val lines = texto.lines().takeLast(150)
              for (line in lines) {
-                 val rowPattern = Regex("(\\d{1,3})[\\s\\.\\-\\/\\\\]+([A-Da-d])(?:\\s+|$)")
+                 val rowPattern = Regex("(\\d{1,3})[\\s\\.\\-\\/\\\\|]+([A-Da-d])(?:\\s+|$)")
                  val matchesRow = rowPattern.findAll(line)
                  for (m in matchesRow) {
                      val num = m.groupValues[1]

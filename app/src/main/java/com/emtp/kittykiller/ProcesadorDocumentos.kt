@@ -90,6 +90,7 @@ class ProcesadorDocumentos(private val context: Context) {
             PDDocument.load(file).use { document ->
                 val stripper = PDFTextStripper()
                 stripper.sortByPosition = true // Importante para mantener orden de columnas
+                stripper.pageEnd = "\u000C" // Añadir Form Feed al final de cada página para poder contarlas
                 textoNativo = stripper.getText(document)
             }
         } catch (e: Exception) {
@@ -142,7 +143,7 @@ class ProcesadorDocumentos(private val context: Context) {
                         // Procesar con ML Kit
                         val image = InputImage.fromBitmap(bitmap, 0)
                         val result = recognizer.process(image).await()
-                        textoCompleto.append(result.text).append("\n\n")
+                        textoCompleto.append(result.text).append("\n\u000C\n") // Añadir separador de página también en OCR
 
                         page.close()
                         bitmap.recycle() // Liberar memoria inmediatamente
@@ -177,7 +178,7 @@ class ProcesadorDocumentos(private val context: Context) {
         // Para PDFs de Ucademy, sabemos que la teoría empieza en la página 9
         if (esUcademy) {
             Log.d("Procesador", "PDF Ucademy detectado, extrayendo desde página 9")
-            val textoExtraido = extraerDesdePagina(texto, paginaInicio = 8) // 0-indexed, so page 9 = index 8
+            val textoExtraido = extraerDesdePagina(texto, paginaInicio = 9) // 0-indexed logic in helper, passing 9 assumes helper handles "start at page 9" meaning skip 8
             // Limpiar cabeceras repetitivas
             return textoExtraido.replace(Regex("(?i)Ucademy|Manual Oposiciones|TÉCNICO EN CUIDADOS AUXILIARES DE ENFERMERÍA|SERVICIO MADRILEÑO DE SALUD"), "")
                 .replace(Regex("\\s+"), " ") // Normalizar espacios
@@ -210,10 +211,10 @@ class ProcesadorDocumentos(private val context: Context) {
 
         // Patrones de inicio mejorados
         val patronesInicio = listOf(
-            Regex("\\n\\s*1\\.\\s+[A-ZÁÉÍÓÚÑ]"),
-            Regex("\\nTEMA\\s+1\\b", RegexOption.IGNORE_CASE),
-            Regex("\\nUNIDAD\\s+DIDÁCTICA\\s+1\\b", RegexOption.IGNORE_CASE),
-            Regex("\\nCAPÍTULO\\s+1\\b", RegexOption.IGNORE_CASE)
+            Regex("\\n\\s*\\d+\\.\\s+[A-ZÁÉÍÓÚÑ]"),
+            Regex("\\nTEMA\\s+\\d+\\b", RegexOption.IGNORE_CASE), // More generic: Tema X
+            Regex("\\nUNIDAD\\s+DIDÁCTICA\\s+\\d+\\b", RegexOption.IGNORE_CASE),
+            Regex("\\nCAPÍTULO\\s+\\d+\\b", RegexOption.IGNORE_CASE)
         )
 
         for (patron in patronesInicio) {

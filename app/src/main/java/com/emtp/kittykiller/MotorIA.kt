@@ -136,11 +136,17 @@ Genera las preguntas ahora:
 
         return try {
             val respuesta = llmInference?.generateResponse(prompt) ?: ""
-            // Asegurar que la respuesta tiene el formato correcto
-            if (!respuesta.trim().startsWith("ENUNCIADO:")) {
-                "### PREGUNTA ###\n$respuesta"
+            val respuestaTrim = respuesta.trim()
+            
+            // Si la respuesta empieza por ENUNCIADO, significa que la IA continuó desde nuestra cabecera
+            // pero la cabecera no está en la respuesta devuelta, así que la añadimos.
+            if (respuestaTrim.startsWith("ENUNCIADO:")) {
+                "### PREGUNTA ###\n$respuestaTrim"
+            } else if (!respuestaTrim.startsWith("### PREGUNTA ###") && respuestaTrim.isNotEmpty()) {
+                // Si devuelve algo que no empieza por la etiqueta ni por enunciado (raro), intentamos arreglarlo
+                "### PREGUNTA ###\n$respuestaTrim"
             } else {
-                respuesta
+                respuestaTrim
             }
         } catch (e: Exception) {
             Log.e("MotorIA", "Error generando preguntas: ${e.message}")
@@ -230,5 +236,44 @@ Genera las preguntas ahora:
     // Cuenta cuántas preguntas fueron generadas en el texto
     private fun contarPreguntasGeneradas(texto: String): Int {
         return texto.split("### PREGUNTA ###").size - 1
+    }
+
+    // Parser dedicado para la salida de la IA
+    fun parsearRespuestaIA(texto: String): List<Pregunta> {
+        val preguntas = mutableListOf<Pregunta>()
+        val bloques = texto.split("### PREGUNTA ###")
+
+        for (bloque in bloques) {
+            if (bloque.isBlank()) continue
+
+            // Extraer campos usando Regex
+            val enunciado = extraerCampo(bloque, "ENUNCIADO")
+            val opA = extraerCampo(bloque, "OPCION_A")
+            val opB = extraerCampo(bloque, "OPCION_B")
+            val opC = extraerCampo(bloque, "OPCION_C")
+            val opD = extraerCampo(bloque, "OPCION_D")
+            val solucion = extraerCampo(bloque, "SOLUCION").lowercase().take(1)
+
+            // Validar que tenemos lo mínimo
+            if (enunciado.isNotBlank() && opA.isNotBlank() && opB.isNotBlank() && solucion.isNotBlank()) {
+                // Crear objeto Pregunta (asumiendo que la clase Pregunta existe en el paquete)
+                val pregunta = Pregunta(
+                    enunciado = enunciado,
+                    opcionA = opA,
+                    opcionB = opB,
+                    opcionC = opC.ifBlank { " " }, // Rellenar si falta para evitar nulls molestos si la clase lo exige
+                    opcionD = opD.ifBlank { " " },
+                    solucion = solucion
+                )
+                preguntas.add(pregunta)
+            }
+        }
+        return preguntas
+    }
+
+    private fun extraerCampo(texto: String, etiqueta: String): String {
+        val regex = Regex("$etiqueta:\\s*(.*?)(?=\\n[A-Z_]+:|$)", RegexOption.DOT_MATCHES_ALL)
+        val match = regex.find(texto)
+        return match?.groupValues?.get(1)?.trim() ?: ""
     }
 }
