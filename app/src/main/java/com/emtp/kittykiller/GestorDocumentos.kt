@@ -6,36 +6,37 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-// --- CORRECCIÓN ---
 // Sacamos el typealias fuera de la clase para evitar el error "nested type aliases".
-// Ahora es accesible en todo el archivo sin problemas.
 typealias TipoDoc = ProcesadorDocumentos.TipoDoc
 
 class GestorDocumentos(private val context: Context) {
 
     private val procesador = ProcesadorDocumentos(context)
 
-    // Callback modificado para manejar Éxito y Error
+    // Callback modificado para manejar Éxito, Error y PROGRESO
     fun clasificarYProcesar(
         uri: Uri,
         nombreArchivo: String,
         onResult: (String, TipoDoc) -> Unit,
-        onError: (String) -> Unit
+        onError: (String) -> Unit,
+        onProgress: (String) -> Unit = {} // Valor por defecto vacío para compatibilidad
     ) {
-        // Lanzamos en el hilo principal para poder actualizar la UI con el resultado,
-        // pero el procesador cambiará internamente a IO para no bloquear.
+        // Lanzamos en el hilo principal para poder actualizar la UI con el resultado
         CoroutineScope(Dispatchers.Main).launch {
             try {
-                // 1. Clasificación preliminar (Test vs Teoría)
+                // 1. Clasificación preliminar
                 if (nombreArchivo.isBlank()) {
                     onError("Nombre de archivo inválido.")
                     return@launch
                 }
 
                 // 2. Procesamiento (Lectura, OCR automático, Limpieza de índices)
-                val resultado = procesador.procesarArchivo(uri, nombreArchivo) { mensajeProgreso ->
-                    // Log de progreso
-                    android.util.Log.d("GestorDocs", "Progreso: $mensajeProgreso")
+                // Pasamos el onProgress recibido hacia el procesador
+                val resultado = procesador.procesarArchivo(uri, nombreArchivo) { mensaje ->
+                    // 1. Log interno
+                    android.util.Log.d("GestorDocs", "Progreso: $mensaje")
+                    // 2. Actualizar UI a través del callback
+                    onProgress(mensaje)
                 }
 
                 val (tipoDetectado, textoExtraido) = resultado

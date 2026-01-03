@@ -9,95 +9,53 @@
     tools:context=".MainActivity">
 
     <ImageView
-        android:id="@+id/ivLogo"
-        android:layout_width="160dp"
-        android:layout_height="160dp"
-        android:layout_marginTop="40dp"
-        android:contentDescription="Logo Kitty Killer"
+        android:id="@+id/ivLogoLoad"
+        android:layout_width="100dp"
+        android:layout_height="100dp"
+        android:layout_marginTop="64dp"
+        android:contentDescription="@string/logo_description"
         android:src="@drawable/hello_kitty"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
     <TextView
-        android:id="@+id/tvTitulo"
+        android:id="@+id/tvTituloCarga"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:text="Kitty Killer Quiz"
-        android:textColor="?attr/colorPrimary"
-        android:textSize="32sp"
+        android:text="Procesando Documento"
+        android:textColor="?android:attr/textColorPrimary"
+        android:textSize="22sp"
         android:textStyle="bold"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/ivLogo" />
+        app:layout_constraintTop_toBottomOf="@+id/ivLogoLoad" />
 
-    <TextView
-        android:id="@+id/tvSubtitulo"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Convierte tus PDFs en exámenes infinitos"
-        android:textColor="@color/text_secondary"
-        android:textSize="16sp"
+    <ProgressBar
+        android:id="@+id/progressBar"
+        style="?android:attr/progressBarStyleLarge"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
+        android:indeterminate="true"
+        android:indeterminateTint="#E91E63"
+        app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/tvTitulo" />
+        app:layout_constraintTop_toBottomOf="@+id/tvTituloCarga"
+        app:layout_constraintVertical_bias="0.4" />
 
     <TextView
         android:id="@+id/tvEstado"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
+        android:layout_marginTop="24dp"
         android:gravity="center"
-        android:text="Selecciona un archivo para empezar..."
+        android:text="Iniciando..."
         android:textColor="@color/text_secondary"
-        android:textSize="15sp"
-        app:layout_constraintBottom_toTopOf="@+id/progressBar"
+        android:textSize="16sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/tvSubtitulo"
-        app:layout_constraintVertical_bias="0.8" />
-
-    <ProgressBar
-        android:id="@+id/progressBar"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="32dp"
-        android:indeterminateTint="@color/purple_500"
-        android:visibility="gone"
-        app:layout_constraintBottom_toTopOf="@+id/btnCargarArchivo"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
-
-    <Button
-        android:id="@+id/btnCargarArchivo"
-        android:layout_width="0dp"
-        android:layout_height="65dp"
-        android:layout_marginBottom="16dp"
-        android:backgroundTint="@color/purple_500"
-        android:text="📂 Cargar Documento"
-        android:textColor="@android:color/white"
-        android:textSize="18sp"
-        app:cornerRadius="12dp"
-        app:layout_constraintBottom_toTopOf="@+id/btnVerHistorial"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
-
-    <Button
-        android:id="@+id/btnVerHistorial"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-        android:layout_width="0dp"
-        android:layout_height="65dp"
-        android:layout_marginBottom="40dp"
-        android:text="📊 Historial y Estadísticas"
-        android:textColor="@color/purple_500"
-        android:textSize="18sp"
-        app:cornerRadius="12dp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:strokeColor="@color/purple_500"
-        app:strokeWidth="2dp" />
+        app:layout_constraintTop_toBottomOf="@+id/progressBar" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

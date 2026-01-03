@@ -176,8 +176,9 @@ object ParseadorExamenes {
     private fun extraerRespuestasInline(texto: String): Map<String, String> {
         val mapa = mutableMapOf<String, String>()
         
-        // Patrón mejorado: acepta dos puntos opcionales. Ej: "Respuesta Correcta: C" o "Respuesta Correcta C"
-        val regexRespuesta = Regex("(?:Respuesta\\s+Correcta|Soluci[óo]n|Sol)[.:]?\\s*([a-dA-D])(?![a-zA-Záéíóú])", RegexOption.IGNORE_CASE)
+        // Patrón mejorado: acepta "Respuesta", "Resp", "Solución", "Sol", "Clave"
+        // Ahora captura "Respuesta: A", "Resp. A", etc.
+        val regexRespuesta = Regex("(?:Respuesta(?:\\s+Correcta)?|Resp|Soluci[óo]n|Sol|Clave)[.:]?\\s*([a-dA-D])(?![a-zA-Záéíóú])", RegexOption.IGNORE_CASE)
         
         // Encontrar todas las respuestas en el documento
         val respuestas = regexRespuesta.findAll(texto).toList()
@@ -199,7 +200,7 @@ object ParseadorExamenes {
             if (numerosEncontrados.isNotEmpty()) {
                 // Tomar el último número encontrado (el más cercano a la respuesta)
                 val ultimoMatch = numerosEncontrados.last()
-                val numeroPregunta = ultimoMatch.groupValues[1] ?: ultimoMatch.groupValues[2]
+                val numeroPregunta = ultimoMatch.groupValues[1].ifEmpty { ultimoMatch.groupValues[2] }
                 
                 if (numeroPregunta.isNotEmpty()) {
                     mapa[numeroPregunta] = letraRespuesta
@@ -264,10 +265,9 @@ object ParseadorExamenes {
     private fun detectarTablaEstructurada(texto: String): Map<String, String> {
         val mapa = mutableMapOf<String, String>()
         
-        // Buscar encabezados de tabla (más flexible)
-        // Ejemplos: "NÚMERO PREGUNTA RESPUESTA CORRECTA", "NUM RESP CORRECTA", "PREG RESP", "ORDEN EXAMEN", "PLANILLA"
+        // Buscar encabezados de tabla (más flexible) incluyendo PLANTILLA y HOJA para Madrid
         val headerPattern = Regex(
-            "(?:NÚMERO|N[UÚ]MERO|NUM|PREGUNTA|PREG|ORDEN|PLANILLA|SOLUCIONES|CLAVE)\\s+(?:PREGUNTA|RESPUESTA|RESP|EXAMEN)?\\s*(?:RESPUESTA|RESP|CORRECTA|SOLUCION)?",
+            "(?:NÚMERO|N[UÚ]MERO|NUM|PREGUNTA|PREG|ORDEN|PLANILLA|HOJA|SOLUCIONES|CLAVE|RESPUESTAS)\\s*(?:DE)?\\s*(?:PREGUNTA|RESPUESTA|RESP|EXAMEN|CORRECTA|SOLUCION)?",
             RegexOption.IGNORE_CASE
         )
         
@@ -277,7 +277,7 @@ object ParseadorExamenes {
              val startPos = match.range.last
              // Analizar las siguientes líneas buscando patrones de respuesta
              val tableText = texto.substring(startPos)
-             val lines = tableText.lines().take(150) // Limitar ventana (aumentada para tablas largas)
+             val lines = tableText.lines().take(150) // Limitar ventana
 
              for (line in lines) {
                  // Coincidir MÚLTIPLES pares en una misma línea (Tablas multicomuna)

@@ -4,12 +4,10 @@ import android.content.Context
 import android.util.Log
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.ceil
-import kotlin.math.min
-
-import kotlin.math.min
 
 object MotorIA {
     private var llmInference: LlmInference? = null
@@ -19,7 +17,7 @@ object MotorIA {
     private const val TAMANO_MINIMO_CHUNK = 1500      // Tamaño mínimo de chunk
     private const val TAMANO_MAXIMO_CHUNK = 3500      // Tamaño máximo de chunk
     private const val SOLAPE_CHUNK = 150              // Solape reducido para menor duplicación
-    
+
     // Data class para representar un chunk de texto
     data class Chunk(
         val texto: String,
@@ -49,7 +47,11 @@ object MotorIA {
         }
     }
 
-    suspend fun generarPreguntas(textoTeoria: String, cantidadTotal: Int): String {
+    suspend fun generarPreguntas(
+        textoTeoria: String,
+        cantidadTotal: Int,
+        onProgress: (Int, Int) -> Unit
+    ): String {
         return withContext(Dispatchers.IO) {
             if (llmInference == null) return@withContext "Error: IA no inicializada."
 
@@ -57,7 +59,10 @@ object MotorIA {
             val textoLimpio = textoTeoria.replace(Regex("\\s+"), " ").trim()
             val longitud = textoLimpio.length
 
-            Log.d("MotorIA", "Procesando texto de $longitud caracteres para generar $cantidadTotal preguntas")
+            Log.d(
+                "MotorIA",
+                "Procesando texto de $longitud caracteres para generar $cantidadTotal preguntas"
+            )
 
             // Calcular número estimado de chunks para distribución
             val numChunksEstimado = if (longitud <= TAMANO_CHUNK_CARACTERES) {
@@ -69,20 +74,33 @@ object MotorIA {
 
             // Distribuir preguntas proporcionalmente
             val preguntasPorChunk = distribuirPreguntasUniforme(numChunksEstimado, cantidadTotal)
-            
+
             val resultadoFinal = StringBuilder()
             var preguntasGeneradas = 0
             var indiceChunk = 0
 
             // Procesar chunks de forma lazy (uno a la vez)
-            for (chunk in dividirEnChunksInteligentes(textoLimpio)) {
+            val chunks = dividirEnChunksInteligentes(textoLimpio)
+            for (chunk in chunks) {
+                // Verificar si el usuario canceló la operación
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+
                 val numPreguntas = preguntasPorChunk.getOrElse(indiceChunk) { 0 }
+
+                // Actualizar progreso UI (Inicio del chunk)
+                withContext(Dispatchers.Main) {
+                    onProgress(indiceChunk, numChunksEstimado)
+                }
+
                 if (numPreguntas == 0) {
                     indiceChunk++
                     continue
                 }
 
-                Log.d("MotorIA", "Chunk ${chunk.indice + 1}/${chunk.total}: generando $numPreguntas preguntas (${chunk.texto.length} chars)")
+                Log.d(
+                    "MotorIA",
+                    "Chunk ${chunk.indice + 1}/${chunk.total}: generando $numPreguntas preguntas (${chunk.texto.length} chars)"
+                )
 
                 val respuestaParcial = llamarGemini(chunk, numPreguntas)
                 if (respuestaParcial.isNotBlank()) {
@@ -91,11 +109,19 @@ object MotorIA {
                     preguntasGeneradas += conteo
                     Log.d("MotorIA", "Chunk ${chunk.indice + 1}: generadas $conteo preguntas")
                 }
-                
+
                 indiceChunk++
             }
 
-            Log.d("MotorIA", "Total preguntas generadas: $preguntasGeneradas de $cantidadTotal solicitadas")
+            // Actualizar progreso final
+            withContext(Dispatchers.Main) {
+                onProgress(numChunksEstimado, numChunksEstimado)
+            }
+
+            Log.d(
+                "MotorIA",
+                "Total preguntas generadas: $preguntasGeneradas de $cantidadTotal solicitadas"
+            )
             resultadoFinal.toString()
         }
     }
@@ -106,7 +132,7 @@ object MotorIA {
         } else {
             "Este es el documento completo."
         }
-        
+
         // Prompt optimizado con Few-Shot Learning (versión compacta)
         val prompt = """
 <start_of_turn>user
@@ -137,7 +163,7 @@ Genera las preguntas ahora:
         return try {
             val respuesta = llmInference?.generateResponse(prompt) ?: ""
             val respuestaTrim = respuesta.trim()
-            
+
             // Si la respuesta empieza por ENUNCIADO, significa que la IA continuó desde nuestra cabecera
             // pero la cabecera no está en la respuesta devuelta, así que la añadimos.
             if (respuestaTrim.startsWith("ENUNCIADO:")) {
@@ -153,52 +179,53 @@ Genera las preguntas ahora:
             ""
         }
     }
-    
+
     // Divide el texto en chunks inteligentes buscando puntos de corte naturales
     // Usa Sequence para procesamiento lazy (evita cargar todos los chunks en memoria)
     private fun dividirEnChunksInteligentes(texto: String): Sequence<Chunk> = sequence {
         val longitud = texto.length
-        
+
         // Si es corto, un solo chunk
         if (longitud <= TAMANO_CHUNK_CARACTERES) {
             yield(Chunk(texto, 0, 1, true))
             return@sequence
         }
-        
+
         // Calcular total de chunks estimado
-        val totalEstimado = ceil(longitud.toDouble() / (TAMANO_CHUNK_CARACTERES - SOLAPE_CHUNK)).toInt()
-        
+        val totalEstimado =
+            ceil(longitud.toDouble() / (TAMANO_CHUNK_CARACTERES - SOLAPE_CHUNK)).toInt()
+
         var cursor = 0
         var indice = 0
-        
+
         while (cursor < longitud) {
             val finIdeal = minOf(cursor + TAMANO_CHUNK_CARACTERES, longitud)
-            
+
             // Buscar punto de corte natural
             val finReal = encontrarPuntoCorteNatural(texto, cursor, finIdeal)
-            
+
             val textoChunk = texto.substring(cursor, finReal)
             val esUltimo = finReal >= longitud
-            
+
             yield(Chunk(textoChunk, indice, totalEstimado, esUltimo))
-            
+
             if (esUltimo) break
-            
+
             // Avanzar con solape
             cursor = finReal - SOLAPE_CHUNK
             indice++
         }
     }
-    
+
     // Encuentra un punto de corte natural en el texto (párrafo, frase, etc.)
     private fun encontrarPuntoCorteNatural(texto: String, inicio: Int, finIdeal: Int): Int {
         if (finIdeal >= texto.length) return texto.length
-        
+
         // Ventana de búsqueda: 200 caracteres antes del fin ideal
         val ventanaBusqueda = 200
         val inicioVentana = maxOf(inicio, finIdeal - ventanaBusqueda)
         val ventana = texto.substring(inicioVentana, finIdeal)
-        
+
         // Buscar patrones de corte en orden de preferencia
         val patronesCorte = listOf(
             Regex("\\n\\n"),           // Salto de párrafo
@@ -206,7 +233,7 @@ Genera las preguntas ahora:
             Regex("\\n"),              // Salto de línea simple
             Regex("\\. [A-ZÁÉÍÓÚÑ]")   // Punto + mayúscula (nueva frase)
         )
-        
+
         for (patron in patronesCorte) {
             val matches = patron.findAll(ventana).toList()
             if (matches.isNotEmpty()) {
@@ -214,25 +241,25 @@ Genera las preguntas ahora:
                 return inicioVentana + ultimoMatch.range.last + 1
             }
         }
-        
+
         // No se encontró punto natural, usar posición ideal
         return finIdeal
     }
-    
+
     // Distribuye las preguntas uniformemente entre los chunks
     private fun distribuirPreguntasUniforme(numChunks: Int, total: Int): List<Int> {
         if (numChunks == 0) return emptyList()
         if (numChunks == 1) return listOf(total)
-        
+
         val preguntasPorChunk = total / numChunks
         val resto = total % numChunks
-        
+
         return List(numChunks) { indice ->
             // Distribuir el resto en los primeros chunks
             if (indice < resto) preguntasPorChunk + 1 else preguntasPorChunk
         }
     }
-    
+
     // Cuenta cuántas preguntas fueron generadas en el texto
     private fun contarPreguntasGeneradas(texto: String): Int {
         return texto.split("### PREGUNTA ###").size - 1

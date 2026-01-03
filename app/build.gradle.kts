@@ -60,7 +60,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
     // IA Local (MediaPipe Gemma)
-    implementation("com.google.mediapipe:tasks-genai:0.10.14")
+    implementation("com.google.mediapipe:tasks-genai:0.10.29")
 
     // OCR (Google ML Kit)
     implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
@@ -80,4 +80,10 @@ dependencies {
     // Dependencias auxiliares para POI
     implementation("javax.xml.stream:stax-api:1.0-2")
     implementation("com.fasterxml.woodstox:woodstox-core:6.5.0")
+
+    // Retrofit para conectar con Cloud Functions
+    implementation("com.squareup.retrofit2:retrofit:2.9.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+    // OkHttp logging (opcional, para depurar)
+    implementation("com.squareup.okhttp3:logging-interceptor:4.11.0")
 }
