@@ -176,8 +176,8 @@ object ParseadorExamenes {
     private fun extraerRespuestasInline(texto: String): Map<String, String> {
         val mapa = mutableMapOf<String, String>()
         
-        // Patrón para encontrar "Respuesta Correcta: X"
-        val regexRespuesta = Regex("Respuesta\\s+Correcta:\\s*([a-dA-D])(?![a-zA-Záéíóú])", RegexOption.IGNORE_CASE)
+        // Patrón para encontrar "Respuesta Correcta: X", "Solución: X", "Sol: X"
+        val regexRespuesta = Regex("(?:Respuesta\\s+Correcta|Soluci[óo]n|Sol)[.:]?\\s*([a-dA-D])(?![a-zA-Záéíóú])", RegexOption.IGNORE_CASE)
         
         // Encontrar todas las respuestas en el documento
         val respuestas = regexRespuesta.findAll(texto).toList()
@@ -247,38 +247,54 @@ object ParseadorExamenes {
         return mapa
     }
     
-    // Detecta tablas estructuradas con encabezados (formato Murcia)
+    // Detecta tablas estructuradas con encabezados (formato Murcia y columnas múltiples)
     private fun detectarTablaEstructurada(texto: String): Map<String, String> {
         val mapa = mutableMapOf<String, String>()
         
-        // Buscar encabezados de tabla
-        // Ejemplos: "NÚMERO PREGUNTA RESPUESTA CORRECTA", "NUM RESP CORRECTA", etc.
+        // Buscar encabezados de tabla (más flexible)
+        // Ejemplos: "NÚMERO PREGUNTA RESPUESTA CORRECTA", "NUM RESP CORRECTA", "PREG RESP"
         val headerPattern = Regex(
-            "(?:NÚMERO|N[UÚ]MERO|NUM)\\s+(?:PREGUNTA)?\\s*(?:RESPUESTA|RESP)\\s+(?:CORRECTA)?",
+            "(?:NÚMERO|N[UÚ]MERO|NUM|PREGUNTA|PREG)\\s+(?:PREGUNTA|RESPUESTA|RESP)?\\s*(?:RESPUESTA|RESP|CORRECTA|SOLUCION)?",
             RegexOption.IGNORE_CASE
         )
         
-        val headerMatch = headerPattern.find(texto) ?: return emptyMap()
-        val startPos = headerMatch.range.last
-        
-        Log.d("Parseador", "Encabezado de tabla encontrado en posición $startPos")
-        
-        // Extraer filas de tabla después del encabezado
-        val tableText = texto.substring(startPos)
-        val lines = tableText.lines().take(200) // Limitar a 200 líneas para evitar procesar todo el documento
-        
-        for (line in lines) {
-            // Coincidir: número + espacios + letra (formato tabla)
-            // Ejemplos: "1    C", "85   B", "  42  A"
-            val rowPattern = Regex("^\\s*(\\d{1,3})\\s+([A-Da-d])\\s*$")
-            val match = rowPattern.find(line.trim())
-            if (match != null) {
-                val num = match.groupValues[1]
-                val letra = match.groupValues[2].lowercase()
-                mapa[num] = letra
-            }
+        val matchesHeader = headerPattern.findAll(texto)
+        // Procesamos posibles tablas encontradas (puede haber más de una si son varias columnas visuales)
+        for (match in matchesHeader) {
+             val startPos = match.range.last
+             // Analizar las siguientes líneas buscando patrones de respuesta
+             val tableText = texto.substring(startPos)
+             val lines = tableText.lines().take(100) // Limitar ventana
+
+             for (line in lines) {
+                 // Coincidir MÚLTIPLES pares en una misma línea (Tablas multicomuna)
+                 // Ej: "1-A   2-B   3-C" o "1 A   2 B"
+                 val rowPattern = Regex("(\\d{1,3})[\\s\\.\\-\\/\\\\]+([A-Da-d])(?:\\s+|$)")
+                 val matchesRow = rowPattern.findAll(line)
+                 
+                 for (m in matchesRow) {
+                     val num = m.groupValues[1]
+                     val letra = m.groupValues[2].lowercase()
+                     mapa[num] = letra
+                 }
+             }
         }
         
+        // Si no encontramos con headers, intentamos buscar bloques densos de respuestas al final
+        if (mapa.isEmpty()) {
+             // Estrategia de "Bloque final denso": mirar las últimas 50 líneas
+             val lines = texto.lines().takeLast(100)
+             for (line in lines) {
+                 val rowPattern = Regex("(\\d{1,3})[\\s\\.\\-\\/\\\\]+([A-Da-d])(?:\\s+|$)")
+                 val matchesRow = rowPattern.findAll(line)
+                 for (m in matchesRow) {
+                     val num = m.groupValues[1]
+                     val letra = m.groupValues[2].lowercase()
+                     mapa[num] = letra
+                 }
+             }
+        }
+
         return mapa
     }
 
@@ -286,30 +302,55 @@ object ParseadorExamenes {
     private fun limpiarEncabezadosRecurrentes(texto: String): String {
         val lineas = texto.lines()
         val contadores = mutableMapOf<String, Int>()
+        
+        val patronesPagina = listOf(
+            Regex("^\\s*P[áa]gina\\s+\\d+\\s+de\\s+\\d+\\s*$", RegexOption.IGNORE_CASE), // Página X de Y
+            Regex("^\\s*Page\\s+\\d+\\s+of\\s+\\d+\\s*$", RegexOption.IGNORE_CASE),     // Page X of Y
+            Regex("^\\s*\\d+\\s*/\\s*\\d+\\s*$"),                                      // 1/15
+            Regex("^\\s*-\\s*\\d+\\s*-\\s*$"),                                         // - 1 -
+            Regex("^\\s*\\d+\\s*$")                                                    // Número suelto (peligroso si es pregunta, pero seguro si es línea aislada recurrente)
+        )
 
-        // 1. Contar frecuencias
+        // 1. Contar frecuencias (Fuzzy matching simplificado)
         for (linea in lineas) {
             val lineaLimpia = linea.trim()
+            if (lineaLimpia.isBlank()) continue
+            
+            // Si coincide con patrón de página, contar aparte para forzar borrado
+            if (patronesPagina.any { it.matches(lineaLimpia) }) {
+                 contadores[lineaLimpia] = 999 // Forzar borrado
+                 continue
+            }
+
             // Solo consideramos líneas con cierta longitud para evitar borrar respuestas cortas (ej: "a)")
-            // y que no sean solo números (paginación simple "1", "2"...)
-            if (lineaLimpia.length > 5 && !lineaLimpia.all { it.isDigit() }) {
-                contadores[lineaLimpia] = contadores.getOrDefault(lineaLimpia, 0) + 1
+            // y que no sean solo números (paginación simple "1", "2"...) salvo que sean recurrentes
+            if (lineaLimpia.length > 5) {
+                // Normalizar dígitos para agrupar "Tema 1", "Tema 2" como el mismo patrón
+                val lineaKey = lineaLimpia.replace(Regex("\\d+"), "#")
+                contadores[lineaKey] = contadores.getOrDefault(lineaKey, 0) + 1
             }
         }
 
         // 2. Identificar candidatos a borrar
-        // Umbral: si aparece más de 3 veces, es sospechoso de ser un encabezado
-        val candidatosBorrar = contadores.filter { it.value > 3 }.keys
+        // Umbral: si aparece más de 3 veces (o 999 forzados), es sospechoso
+        val patronesBorrar = contadores.filter { it.value > 3 }.keys
 
-        if (candidatosBorrar.isEmpty()) return texto
+        if (patronesBorrar.isEmpty()) return texto
 
-        Log.d("Parseador", "Se eliminarán ${candidatosBorrar.size} patrones recurrentes: $candidatosBorrar")
+        Log.d("Parseador", "Se eliminarán patrones recurrentes: $patronesBorrar")
 
         // 3. Reconstruir texto filtrando
         return lineas.filter {
             val lineaLimpia = it.trim()
-            // Mantener si NO está en la lista negra (o si es corto/numérico y fue ignorado en el conteo)
-            !candidatosBorrar.contains(lineaLimpia)
+            if (lineaLimpia.isBlank()) return@filter true // Mantener saltos de línea para estructura
+            
+            val lineaKey = lineaLimpia.replace(Regex("\\d+"), "#")
+            
+            // Mantener solo si NO coincide con un patrón a borrar
+            // Y verificar explícitamente los patrones de página línea por línea también
+            val esPatronPagina = patronesPagina.any { p -> p.matches(lineaLimpia) }
+            
+            !patronesBorrar.contains(lineaKey) && !esPatronPagina
         }.joinToString("\n")
     }
 }

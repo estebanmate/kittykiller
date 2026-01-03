@@ -15,7 +15,7 @@ object MotorIA {
     private var llmInference: LlmInference? = null
 
     // Configuración para división de texto mejorada (reducida para evitar OOM)
-    private const val TAMANO_CHUNK_CARACTERES = 2500  // Reducido para menor uso de memoria
+    private const val TAMANO_CHUNK_CARACTERES = 2000  // Reducido más para evitar crash por contexto
     private const val TAMANO_MINIMO_CHUNK = 1500      // Tamaño mínimo de chunk
     private const val TAMANO_MAXIMO_CHUNK = 3500      // Tamaño máximo de chunk
     private const val SOLAPE_CHUNK = 150              // Solape reducido para menor duplicación
@@ -38,7 +38,7 @@ object MotorIA {
 
                 val options = LlmInference.LlmInferenceOptions.builder()
                     .setModelPath(modelFile.absolutePath)
-                    .setMaxTokens(1024) // Tokens para la RESPUESTA generada
+                    .setMaxTokens(800) // Tokens para la RESPUESTA generada (reducido para dejar espacio al prompt)
                     .build()
                 llmInference = LlmInference.createFromOptions(context, options)
                 true
@@ -107,45 +107,29 @@ object MotorIA {
             "Este es el documento completo."
         }
         
-        // Prompt optimizado con Few-Shot Learning
+        // Prompt optimizado con Few-Shot Learning (versión compacta)
         val prompt = """
 <start_of_turn>user
-Eres un profesor experto en TCAE (Técnico en Cuidados Auxiliares de Enfermería). Tu tarea es generar preguntas de examen tipo test de alta calidad.
+Eres un profesor experto en TCAE. Genera $cantidad preguntas de test (A,B,C,D, única respuesta) basadas en el texto.
 
 $contextoChunk
 
-INSTRUCCIONES:
-1. Lee cuidadosamente el siguiente texto
-2. Genera EXACTAMENTE $cantidad preguntas basadas EXCLUSIVAMENTE en el contenido del texto
-3. Las preguntas deben:
-   - Evaluar conceptos clave y conocimientos importantes
-   - Ser claras y sin ambigüedades
-   - Tener 4 opciones (A, B, C, D)
-   - Tener UNA ÚNICA respuesta correcta
-   - Evitar preguntas triviales o demasiado obvias
-   - Cubrir diferentes partes del texto proporcionado
-
-EJEMPLO DE FORMATO CORRECTO:
-### PREGUNTA ###
-ENUNCIADO: ¿Cuál es el artículo de la Constitución Española que reconoce el derecho a la protección de la salud?
-OPCION_A: Artículo 41
-OPCION_B: Artículo 42
-OPCION_C: Artículo 43
-OPCION_D: Artículo 44
-SOLUCION: c
-
-TEXTO A ANALIZAR:
+TEXTO:
 ${chunk.texto}
 
-IMPORTANTE: 
-- Usa EXACTAMENTE el formato mostrado en el ejemplo
-- Cada pregunta debe empezar con "### PREGUNTA ###"
-- La solución debe ser solo la letra (a, b, c o d) en minúscula
-- NO inventes información que no esté en el texto
-- NO generes más de $cantidad preguntas
+FORMATO OBLIGATORIO:
+### PREGUNTA ###
+ENUNCIADO: [Pregunta]
+OPCION_A: [Opción A]
+OPCION_B: [Opción B]
+OPCION_C: [Opción C]
+OPCION_D: [Opción D]
+SOLUCION: [letra a,b,c,d]
 
 Genera las preguntas ahora:
 <end_of_turn>
+<start_of_turn>model
+### PREGUNTA ###
 <start_of_turn>model
 ### PREGUNTA ###
 """.trimIndent()

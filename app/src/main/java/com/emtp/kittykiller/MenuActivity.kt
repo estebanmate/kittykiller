@@ -51,14 +51,7 @@ class MenuActivity : AppCompatActivity() {
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             if (uri != null) {
                 when (modoSeleccionado) {
-                    "TEST", "TEORIA" -> procesarDocumento(uri)
-                    "AUDIO" -> {
-                        // Modo audio: ir a AudioActivity
-                        val intent = Intent(this, AudioActivity::class.java)
-                        intent.data = uri
-                        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        startActivity(intent)
-                    }
+                    "TEST", "TEORIA", "AUDIO" -> procesarDocumento(uri)
                 }
             } else {
                 tvEstado.text = "Selección cancelada"
@@ -137,7 +130,7 @@ class MenuActivity : AppCompatActivity() {
         // Determinar tipo de documento según el modo seleccionado
         val tipoDocForzado = when (modoSeleccionado) {
             "TEST" -> TipoDoc.TEST
-            "TEORIA" -> TipoDoc.TEORIA
+            "TEORIA", "AUDIO" -> TipoDoc.TEORIA // Audio se trata como Teoría para limpieza
             else -> null
         }
 
@@ -187,8 +180,22 @@ class MenuActivity : AppCompatActivity() {
                         ).show()
                     }
                 } else {
-                    // CASO TEORÍA: Preguntar cantidad de preguntas
-                    solicitarCantidadPreguntas(texto)
+                    // CASO TEORÍA o AUDIO
+                    if (modoSeleccionado == "AUDIO") {
+                         tvEstado.text = "Preparando lectura..."
+                         QuizRepository.textoTeoriaParaAudio = texto
+                         
+                         // Ir a AudioActivity
+                         val intent = Intent(this@MenuActivity, AudioActivity::class.java)
+                         // No pasamos URI porque ya tenemos el texto procesado en el Repo
+                         startActivity(intent)
+                         
+                         progressBar.visibility = View.GONE
+                         deshabilitarBotones(false)
+                    } else {
+                        // CASO TEORIA IA
+                        solicitarCantidadPreguntas(texto)
+                    }
                 }
 
             } catch (e: Exception) {
