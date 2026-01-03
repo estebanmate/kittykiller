@@ -44,8 +44,7 @@ class PreguntaActivity : AppCompatActivity() {
 
         // Botón GUARDAR Y SALIR
         binding.btnGuardarSalir.setOnClickListener {
-            // Aquí puedes llamar a GestorPersistencia.guardarProgreso(this) si lo usas
-            finish()
+            mostrarDialogoGuardar()
         }
 
         cargarPregunta()
@@ -172,5 +171,35 @@ class PreguntaActivity : AppCompatActivity() {
         ).forEach {
             it.isEnabled = habilitar
         }
+    }
+
+    private fun mostrarDialogoGuardar() {
+        val nombreArchivo = QuizRepository.nombreArchivoOriginal
+        val preguntaActual = QuizRepository.indiceActual + 1
+        val totalPreguntas = QuizRepository.preguntas.size
+
+        AlertDialog.Builder(this)
+            .setTitle("Guardar Progreso")
+            .setMessage(
+                "¿Deseas guardar el progreso del test?\n\n" +
+                "📄 Archivo: $nombreArchivo\n" +
+                "📊 Progreso: $preguntaActual/$totalPreguntas preguntas\n" +
+                "✅ Aciertos: ${QuizRepository.aciertos}\n" +
+                "❌ Fallos: ${QuizRepository.preguntasFalladas.size}"
+            )
+            .setPositiveButton("Guardar") { _, _ ->
+                GestorPersistencia.guardarProgreso(this)
+                Toast.makeText(
+                    this,
+                    "Test guardado como: $nombreArchivo",
+                    Toast.LENGTH_LONG
+                ).show()
+                finish()
+            }
+            .setNegativeButton("Salir sin guardar") { _, _ ->
+                finish()
+            }
+            .setNeutralButton("Cancelar", null)
+            .show()
     }
 }

@@ -21,10 +21,13 @@ object ParseadorExamenes {
 
     fun parsearTexto(textoCompleto: String): List<Pregunta> {
         // Normalización previa: eliminar basura típica de PDFs
-        val texto = textoCompleto.replace("\r", "")
+        var texto = textoCompleto.replace("\r", "")
             .replace("\u000C", "") // Eliminar saltos de página (Form Feed)
 
-        Log.d("Parseador", "Iniciando análisis iterativo V11...")
+        // LIMPIEZA INTELIGENTE DE ENCABEZADOS Y PIES DE PÁGINA
+        texto = limpiarEncabezadosRecurrentes(texto)
+
+        Log.d("Parseador", "Iniciando análisis iterativo V12 (con limpieza de headers)...")
 
         // 1. Detectar Tabla de Respuestas (Si existe al final del documento)
         val mapaRespuestas = detectarTablaDeRespuestas(texto)

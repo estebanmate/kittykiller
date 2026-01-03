@@ -39,6 +39,8 @@
         <activity android:name=".AudioActivity" />
 
         <activity android:name=".PreguntaActivity" />
+
+        <activity android:name=".TextSelectionActivity" />
     </application>
 
 </manifest>
