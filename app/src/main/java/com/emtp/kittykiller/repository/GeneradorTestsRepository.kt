@@ -8,6 +8,8 @@ import com.emtp.kittykiller.ProcesadorDocumentos.TipoDoc
 import com.emtp.kittykiller.api.CloudApi
 import com.emtp.kittykiller.api.CloudRequest
 import com.emtp.kittykiller.data.toPreguntaDominio
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
@@ -19,11 +21,22 @@ enum class ModoEjecucion {
 class GeneradorTestsRepository {
 
     // Asegúrate de que la URL termina en "/"
-    private val baseUrl = "https://us-central1-TU-PROYECTO.cloudfunctions.net/"
+    private val baseUrl =
+        "https://us-central1-kittykiller-api-v1.cloudfunctions.net/"
+
+    // Cliente HTTP con tiempo de espera extendido para IA
+    private val okHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(90, TimeUnit.SECONDS) // Conexión inicial
+            .readTimeout(90, TimeUnit.SECONDS)    // Espera de respuesta (IA lentas)
+            .writeTimeout(90, TimeUnit.SECONDS)   // Envío de datos (PDF grandes)
+            .build()
+    }
 
     private val cloudApi: CloudApi by lazy {
         Retrofit.Builder()
             .baseUrl(baseUrl)
+            .client(okHttpClient) // Asignamos el cliente configurado
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(CloudApi::class.java)
@@ -73,9 +86,12 @@ class GeneradorTestsRepository {
 
         Log.d("Repo", "Llamando a Cloud ($modeApi)")
 
+        // SANITIZACIÓN: Eliminar caracteres de control problemáticos antes de enviar
+        val textoSanitizado = texto.replace("\u000C", "") // Eliminar Form Feed
+
         try {
             val response = cloudApi.procesarDocumento(
-                CloudRequest(mode = modeApi, content = texto)
+                CloudRequest(mode = modeApi, content = textoSanitizado)
             )
 
             if (response.success && !response.data.isNullOrEmpty()) {
@@ -83,6 +99,11 @@ class GeneradorTestsRepository {
             } else {
                 throw Exception("La nube respondió correctamente pero sin datos.")
             }
+        } catch (e: retrofit2.HttpException) {
+            val errorBody = e.response()?.errorBody()?.string()
+            Log.e("Repo", "Error HTTP Cloud: $errorBody", e)
+            // Intentar extraer mensaje JSON si es posible
+            throw Exception("Error del Servidor (${e.code()}): $errorBody")
         } catch (e: Exception) {
             Log.e("Repo", "Error Cloud", e)
             throw e

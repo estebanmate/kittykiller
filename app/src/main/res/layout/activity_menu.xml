@@ -53,18 +53,29 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/tvSubtitulo">
 
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchModoNube"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
-            android:checked="false"
-            android:padding="12dp"
-            android:text="Usar Super-Inteligencia (Nube)"
-            android:textColor="?android:attr/textColorPrimary"
-            android:textSize="16sp"
-            app:thumbTint="@color/white"
-            app:trackTint="#6750A4" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="8dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Usar Super-Inteligencia (Nube)"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="16sp" />
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switchModoNube"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="false" />
+
+        </LinearLayout>
 
         <Button
             android:id="@+id/btnCargarTest"

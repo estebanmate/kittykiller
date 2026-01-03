@@ -10,7 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.android.material.switchmaterial.SwitchMaterial
 import kotlinx.coroutines.launch
 
 class MenuActivity : AppCompatActivity() {
@@ -18,7 +18,7 @@ class MenuActivity : AppCompatActivity() {
     // Modos: "TEST", "TEORIA", "AUDIO"
     private var modoSeleccionado = "TEST"
 
-    private lateinit var switchModoNube: MaterialSwitch
+    private lateinit var switchModoNube: SwitchMaterial
     private lateinit var tvEstadoMenu: TextView
 
     // Selector de archivos
