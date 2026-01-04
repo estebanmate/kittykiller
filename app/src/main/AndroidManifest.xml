@@ -36,6 +36,8 @@
 
         <activity android:name=".MainActivity" />
 
+        <activity android:name=".AudioActivity" />
+
         <activity android:name=".PreguntaActivity" />
     </application>
 

@@ -4,22 +4,31 @@ import android.content.Context
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 object MotorIA {
     private var llmInference: LlmInference? = null
 
-    suspend fun inicializar(context: Context) {
-        withContext(Dispatchers.IO) {
+    suspend fun inicializar(context: Context): Boolean {
+        return withContext(Dispatchers.IO) {
             if (llmInference == null) {
                 try {
+                    // Corrected path to point to internal storage where GestorDescargas saves it
+                    val modelFile = File(context.filesDir, "gemma-2b-it-cpu-int4.bin")
+                    val modelPath = modelFile.absolutePath
+
                     val options = LlmInference.LlmInferenceOptions.builder()
-                        .setModelPath("/data/local/tmp/gemma-2b-it-cpu-int4.bin") // Ajusta ruta si es necesario
+                        .setModelPath(modelPath)
                         .setMaxTokens(1024)
                         .build()
                     llmInference = LlmInference.createFromOptions(context, options)
+                    true
                 } catch (e: Exception) {
                     e.printStackTrace()
+                    false
                 }
+            } else {
+                true // Already initialized
             }
         }
     }
