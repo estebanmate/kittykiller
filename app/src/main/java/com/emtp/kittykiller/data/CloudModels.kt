@@ -23,11 +23,13 @@ fun CloudPreguntaDto.toPreguntaDominio(): Pregunta {
         return texto.replace(Regex("^[A-D][\\.\\)]\\s*", RegexOption.IGNORE_CASE), "").trim()
     }
 
-    // Aseguramos que siempre haya 4 opciones, aunque la IA devuelva menos (rellenando con vacíos)
     val opA = opciones.getOrElse(0) { "" }.let { limpiarOpcion(it) }
     val opB = opciones.getOrElse(1) { "" }.let { limpiarOpcion(it) }
     val opC = opciones.getOrElse(2) { "" }.let { limpiarOpcion(it) }
     val opD = opciones.getOrElse(3) { "" }.let { limpiarOpcion(it) }
+
+    // Lista de opciones limpias para buscar coincidencia por texto
+    val opcionesLimpias = listOf(opA, opB, opC, opD)
 
     return Pregunta(
         enunciado = this.pregunta,
@@ -36,26 +38,44 @@ fun CloudPreguntaDto.toPreguntaDominio(): Pregunta {
         opcionC = opC,
         opcionD = opD,
         solucion = this.respuestaCorrecta.let { raw ->
-            // Buscamos explícitamente una letra aislada o al principio: "A", "a)", "Respuesta: A"
-            // Primero intentamos match estricto de letra única
-            val regexLetra = Regex("^[a-dA-D]$")
-            val trimmed = raw.trim()
-            
-            if (trimmed.matches(regexLetra)) {
-                trimmed.lowercase()
-            } else {
-                // Si viene con basura ("A) Madrid", "Respuesta Correcta: B"), buscamos la primera letra válida
-                // Prioridad 1: "Opción A", "Respuesta: B", "Solución C"
-                val matchExplicit = Regex("(?:Opción|Opcion|Respuesta|Solución|Solucion|Correcta)[:\\s]+([a-dA-D])", RegexOption.IGNORE_CASE).find(raw)
+            val rawTrimmed = raw.trim()
 
+            // 1. Intentar buscar coincidencia exacta por TEXTO
+            // Si la nube devuelve "El paciente" y eso coincide con la Opción B, devolvemos "b"
+            val indexCoincidencia = opcionesLimpias.indexOfFirst {
+                it.equals(rawTrimmed, ignoreCase = true) || rawTrimmed.contains(
+                    it,
+                    ignoreCase = true
+                )
+            }
+
+            if (indexCoincidencia != -1) {
+                return@let when (indexCoincidencia) {
+                    0 -> "a"
+                    1 -> "b"
+                    2 -> "c"
+                    3 -> "d"
+                    else -> "a"
+                }
+            }
+
+            // 2. Si no es texto completo, usamos la lógica original de extracción de LETRA
+            val regexLetra = Regex("^[a-dA-D]$")
+            if (rawTrimmed.matches(regexLetra)) {
+                rawTrimmed.lowercase()
+            } else {
+                val matchExplicit = Regex(
+                    "(?:Opción|Opcion|Respuesta|Solución|Solucion|Correcta)[:\\s]+([a-dA-D])",
+                    RegexOption.IGNORE_CASE
+                ).find(raw)
                 if (matchExplicit != null) {
                     matchExplicit.groupValues[1].lowercase()
                 } else {
-                    // Prioridad 2: Letra seguida de paréntesis o punto: "A)", "B."
                     val matchPunt = Regex("([a-dA-D])([).:]|$)").find(raw)
-                    // Prioridad 3: Letra suelta entre espacios
                         ?: Regex("(?:^|\\s)([a-dA-D])(?:$|\\s)").find(raw)
 
+                    // Si falla todo, por desgracia devolvía "a".
+                    // Podrías poner un log aquí para depurar qué está llegando realmente.
                     matchPunt?.groupValues?.get(1)?.lowercase() ?: "a"
                 }
             }

@@ -144,23 +144,26 @@ $contextoChunk
 TEXTO:
 ${chunk.texto}
 
-FORMATO OBLIGATORIO:
+FORMATO OBLIGATORIO (Imítalo exactamente):
 ### PREGUNTA ###
 ENUNCIADO: [Pregunta]
 OPCION_A: [Opción A]
 OPCION_B: [Opción B]
 OPCION_C: [Opción C]
 OPCION_D: [Opción D]
-SOLUCION: [letra a,b,c,d]
+SOLUCION: [solo la letra a,b,c o d]
 
-IMPORTANTE:
-- La SOLUCION debe ser solo la letra (a, b, c o d).
-- No uses markdown en la solución.
-
-Genera las preguntas ahora:
-<end_of_turn>
-<start_of_turn>model
+EJEMPLO DE SALIDA:
 ### PREGUNTA ###
+ENUNCIADO: ¿Cuál es la función principal de los glóbulos rojos?
+OPCION_A: Coagulación
+OPCION_B: Transporte de oxígeno
+OPCION_C: Defensa
+OPCION_D: Estructura ósea
+SOLUCION: b
+
+Genera las preguntas ahora siguiendo el ejemplo:
+<end_of_turn>
 <start_of_turn>model
 ### PREGUNTA ###
 """.trimIndent()
@@ -270,7 +273,7 @@ Genera las preguntas ahora:
         return texto.split("### PREGUNTA ###").size - 1
     }
 
-    // Parser dedicado para la salida de la IA
+    // Parser dedicado para la salida de la IA (Versión Robusta)
     fun parsearRespuestaIA(texto: String): List<Pregunta> {
         val preguntas = mutableListOf<Pregunta>()
         val bloques = texto.split("### PREGUNTA ###")
@@ -278,25 +281,57 @@ Genera las preguntas ahora:
         for (bloque in bloques) {
             if (bloque.isBlank()) continue
 
-            // Extraer campos usando Regex
+            // 1. Extracción de campos (usando la nueva regex permisiva)
             val enunciado = extraerCampo(bloque, "ENUNCIADO")
             val opA = extraerCampo(bloque, "OPCION_A")
             val opB = extraerCampo(bloque, "OPCION_B")
             val opC = extraerCampo(bloque, "OPCION_C")
             val opD = extraerCampo(bloque, "OPCION_D")
-            // Aceptamos variaciones con acento o sin él
-            val solucion = extraerCampoFuzzy(bloque, listOf("SOLUCION", "SOLUCIÓN", "RESPUESTA CORRECTA")).lowercase().take(1)
 
-            // Validar que tenemos lo mínimo
-            if (enunciado.isNotBlank() && opA.isNotBlank() && opB.isNotBlank() && solucion.isNotBlank()) {
-                // Crear objeto Pregunta (asumiendo que la clase Pregunta existe en el paquete)
+            // Obtenemos el texto crudo de la solución
+            val solucionRaw =
+                extraerCampoFuzzy(bloque, listOf("SOLUCION", "SOLUCIÓN", "RESPUESTA CORRECTA"))
+
+            // 2. Lógica inteligente para deducir la letra correcta (aunque la IA escriba texto)
+            val solucionFinal =
+                if (solucionRaw.length == 1 && solucionRaw.matches(Regex("[a-dA-D]"))) {
+                    solucionRaw.lowercase()
+                } else {
+                    val textoSolucion = solucionRaw.lowercase()
+
+                    // Prioridad 1: Coincidencia de texto
+                    if (opA.isNotBlank() && textoSolucion.contains(opA.lowercase().take(15))) "a"
+                    else if (opB.isNotBlank() && textoSolucion.contains(
+                            opB.lowercase().take(15)
+                        )
+                    ) "b"
+                    else if (opC.isNotBlank() && textoSolucion.contains(
+                            opC.lowercase().take(15)
+                        )
+                    ) "c"
+                    else if (opD.isNotBlank() && textoSolucion.contains(
+                            opD.lowercase().take(15)
+                        )
+                    ) "d"
+                    else {
+                        // Prioridad 2: Buscar letra explícita (ej: "b)")
+                        Regex("([a-dA-D])([).:\\s]|$)").find(solucionRaw)?.groupValues?.get(1)
+                            ?.lowercase()
+                            ?: "a" // Fallback
+                    }
+                }
+
+            // 3. IF PERMISIVO:
+            // Solo exigimos Enunciado, A, B y Solución.
+            // Si falta C o D, rellenamos con espacio en blanco para que no crashee.
+            if (enunciado.isNotBlank() && opA.isNotBlank() && opB.isNotBlank() && solucionFinal.isNotBlank()) {
                 val pregunta = Pregunta(
                     enunciado = enunciado,
                     opcionA = opA,
                     opcionB = opB,
-                    opcionC = opC.ifBlank { " " }, // Rellenar si falta para evitar nulls molestos si la clase lo exige
-                    opcionD = opD.ifBlank { " " },
-                    solucion = solucion
+                    opcionC = opC.ifBlank { " " }, // Rellenamos si falta
+                    opcionD = opD.ifBlank { " " }, // Rellenamos si falta
+                    solucion = solucionFinal
                 )
                 preguntas.add(pregunta)
             }
@@ -310,9 +345,16 @@ Genera las preguntas ahora:
 
     private fun extraerCampoFuzzy(texto: String, etiquetas: List<String>): String {
         // Construimos regex que busque cualquiera de las etiquetas
-        // (?:ETIQUETA1|ETIQUETA2):\s*(.*?)...
         val keysPattern = etiquetas.joinToString("|") { Regex.escape(it) }
-        val regex = Regex("(?:$keysPattern):\\s*(.*?)(?=\\n[A-Z_]+:|$)", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+
+        // REGEX MEJORADA:
+        // No exige salto de línea (\n) antes de la siguiente etiqueta.
+        // (?=\\s*(?:$keysPattern)|$) -> Mira hacia adelante buscando la siguiente etiqueta o el final del string
+        val regex = Regex(
+            "(?:$keysPattern):\\s*(.*?)(?=\\s*(?:$keysPattern)|$)",
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
+        )
+
         val match = regex.find(texto)
         return match?.groupValues?.get(1)?.trim() ?: ""
     }

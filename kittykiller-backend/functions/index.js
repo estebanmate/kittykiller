@@ -21,8 +21,10 @@ exports.procesarDocumentoTest = onRequest({ cors: true, secrets: ["GEMINI_API_KE
       return;
     }
 
+    // En kittykiller-backend/functions/index.js
+
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash-lite",
+      model: "gemini-2.5-flash-lite", // (Ojo: verifica si este modelo existe, lo estándar es gemini-1.5-flash)
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -36,7 +38,12 @@ exports.procesarDocumentoTest = onRequest({ cors: true, secrets: ["GEMINI_API_KE
                 type: SchemaType.ARRAY,
                 items: { type: SchemaType.STRING }
               },
-              respuesta_correcta: { type: SchemaType.STRING },
+              // --- CAMBIO AQUÍ ---
+              respuesta_correcta: {
+                type: SchemaType.STRING,
+                enum: ["A", "B", "C", "D"] // Obligamos a que sea una de estas 4 letras
+              },
+              // -------------------
             },
             required: ["pregunta", "opciones", "respuesta_correcta"],
           },
@@ -47,18 +54,17 @@ exports.procesarDocumentoTest = onRequest({ cors: true, secrets: ["GEMINI_API_KE
     let systemInstruction = "";
     if (mode === "extract") {
       systemInstruction = `
-        Eres un asistente experto en digitalización de exámenes.
-        Identifica preguntas, opciones y respuestas del texto.
-        Si no hay respuesta marcada, dedúcela.
-        IMPORTANTE: El campo 'respuesta_correcta' DEBE ser ÚNICAMENTE la letra (A, B, C o D). No incluyas el texto de la opción.
-        Devuelve JSON limpio.
+        Eres un experto digitalizador de exámenes.
+        Extrae las preguntas del texto proporcionado.
+        Salida JSON estricta.
+        Campo 'respuesta_correcta': Solo la letra mayúscula (A, B, C, D).
+        Si no hay respuesta, deduce la más probable.
       `;
     } else {
       systemInstruction = `
-        Genera un examen tipo test de 20 preguntas basado en el texto.
-        4 opciones por pregunta, una correcta.
-        IMPORTANTE: El campo 'respuesta_correcta' DEBE ser ÚNICAMENTE la letra (A, B, C o D).
-        Nivel: Técnico Auxiliar (TCAE).
+        Genera un examen test de 20 preguntas nivel TCAE basado en el texto.
+        Campo 'respuesta_correcta': Solo la letra mayúscula (A, B, C, D).
+        Salida JSON estricta.
       `;
     }
 
