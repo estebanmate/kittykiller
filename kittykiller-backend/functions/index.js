@@ -50,12 +50,14 @@ exports.procesarDocumentoTest = onRequest({ cors: true, secrets: ["GEMINI_API_KE
         Eres un asistente experto en digitalización de exámenes.
         Identifica preguntas, opciones y respuestas del texto.
         Si no hay respuesta marcada, dedúcela.
+        IMPORTANTE: El campo 'respuesta_correcta' DEBE ser ÚNICAMENTE la letra (A, B, C o D). No incluyas el texto de la opción.
         Devuelve JSON limpio.
       `;
     } else {
       systemInstruction = `
         Genera un examen tipo test de 20 preguntas basado en el texto.
         4 opciones por pregunta, una correcta.
+        IMPORTANTE: El campo 'respuesta_correcta' DEBE ser ÚNICAMENTE la letra (A, B, C o D).
         Nivel: Técnico Auxiliar (TCAE).
       `;
     }

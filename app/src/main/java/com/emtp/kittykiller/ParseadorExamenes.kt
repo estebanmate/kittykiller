@@ -107,6 +107,8 @@ object ParseadorExamenes {
         var enunciado = bloque.substring(inicioEnunciadoTexto, finEnunciadoTexto).trim()
         // Limpieza extra: quitar guiones o puntos iniciales residuales
         enunciado = enunciado.replace(Regex("^\\s*[-.]\\s*"), "")
+        // Normalizar espacios en enunciado (unir saltos de línea)
+        enunciado = enunciado.replace(Regex("\\s+"), " ")
 
         // 3. Extraer Texto de las Opciones
         val mapOpciones = mutableMapOf<String, String>()
@@ -121,6 +123,8 @@ object ParseadorExamenes {
             // Buscamos el primer carácter que no sea la letra ni signos de puntuación
             var textoOp = bloque.substring(start, end).trim()
             textoOp = textoOp.replaceFirst(Regex("^[a-dA-D][\\.\\)]\\s*"), "")
+            // Normalizar espacios: Convertir saltos de línea (page splits) en espacios simples
+            textoOp = textoOp.replace(Regex("\\s+"), " ")
 
             mapOpciones[letra] = textoOp
         }
@@ -157,8 +161,11 @@ object ParseadorExamenes {
         }
         
         // C) LIMPIEZA FINAL: Eliminar cualquier texto de "Respuesta Correcta:" que haya quedado
-        // Mejorado: Regex más tolerante que acepta dos puntos y cualquier cosa después (no solo letra) hasta fin de línea
-        val regexLimpiarRespuesta = Regex("Respuesta\\s+Correcta[:.]?\\s*[a-dA-D].*", RegexOption.IGNORE_CASE)
+        // Mejorado: Usamos el mismo patrón FUZZY que en la detección para asegurar borrado
+        val regexLimpiarRespuesta = Regex(
+            "(?:Resp[a-z\\s\\.]*C[a-z]+|Respuesta|Resp|Soluci[óo]n|Sol|Clave|Valoraci[óo]n)[\\.:\\s-]*[a-dA-D].*",
+            RegexOption.IGNORE_CASE
+        )
         cA = regexLimpiarRespuesta.replace(cA, "").trim()
         cB = regexLimpiarRespuesta.replace(cB, "").trim()
         cC = regexLimpiarRespuesta.replace(cC, "").trim()
@@ -176,9 +183,13 @@ object ParseadorExamenes {
     private fun extraerRespuestasInline(texto: String): Map<String, String> {
         val mapa = mutableMapOf<String, String>()
         
-        // Patrón mejorado: acepta "Respuesta", "Resp", "Solución", "Sol", "Clave"
-        // Ahora captura "Respuesta: A", "Resp. A", etc.
-        val regexRespuesta = Regex("(?:Respuesta(?:\\s+Correcta)?|Resp|Soluci[óo]n|Sol|Clave)[.:]?\\s*([a-dA-D])(?![a-zA-Záéíóú])", RegexOption.IGNORE_CASE)
+        // Patrón mejorado (FUZZY OCR):
+        // Acepta "Respuesta Correcta", "Respuesta Conecta", "R. Correcta", "Valoración", "Solución", etc.
+        // La parte `(?:Resp[a-z\s\.]*C[a-z]+` intenta capturar "Respuesta Correcta" mal escrito.
+        val regexRespuesta = Regex(
+            "(?:Resp[a-z\\s\\.]*C[a-z]+|Respuesta|Resp|Soluci[óo]n|Sol|Clave|Valoraci[óo]n)[\\.:\\s-]*([a-dA-D])(?![a-zA-Záéíóú])",
+            RegexOption.IGNORE_CASE
+        )
         
         // Encontrar todas las respuestas en el documento
         val respuestas = regexRespuesta.findAll(texto).toList()
@@ -189,8 +200,8 @@ object ParseadorExamenes {
             val letraRespuesta = matchRespuesta.groupValues[1].lowercase()
             
             // Buscar hacia atrás el número de pregunta más cercano
-            // Tomamos los últimos 500 caracteres antes de la respuesta para buscar el número
-            val inicioVentana = maxOf(0, posicionRespuesta - 500)
+            // AUMENTADO: 500 -> 2000 caracteres para aguantar saltos de página grandes o preguntas muy largas
+            val inicioVentana = maxOf(0, posicionRespuesta - 2000)
             val ventana = texto.substring(inicioVentana, posicionRespuesta)
             
             // Buscar el último número de pregunta en esta ventana
@@ -225,7 +236,8 @@ object ParseadorExamenes {
         val mapa = mutableMapOf<String, String>()
         // Regex busca: Número + (espacios/puntos/guiones opcionales) + Letra
         // (?![a-zA-Z]) asegura que la letra no sea el inicio de una palabra (ej: "1 Año")
-        val regex = Regex("(\\d{1,3})[\\s\\.\\-\\/\\\\|]*([a-dA-D])(?![a-zA-Záéíóú])")
+        // MEJORA: Acepta "o", "°", "º" como separadores OCR (ej: 1º A)
+        val regex = Regex("(\\d{1,3})[\\s\\.\\-\\/\\\\|º°oO]*([a-dA-D])(?![a-zA-Záéíóú])")
 
         val matches = regex.findAll(texto).toList()
 
@@ -244,7 +256,7 @@ object ParseadorExamenes {
              // Densidad: matches / longitud del bloque. 
              // Ajuste: si hay muchos matches (>20) confiamos en ellos aunque estén dispersos
              // Si hay pocos, exigimos que estén juntos.
-             if (matches.size < 20 && rangoTotal > matches.size * 200) {
+             if (matches.size < 20 && rangoTotal > matches.size * 350) { // Aumentado rango para tablas muy verticales
                  // Dispersos: riesgo de falsos positivos en texto
                  Log.d("Parseador", "Matches dispersos detectados, descartando probable tabla falsa.")
                  return emptyMap()
@@ -266,8 +278,9 @@ object ParseadorExamenes {
         val mapa = mutableMapOf<String, String>()
         
         // Buscar encabezados de tabla (más flexible) incluyendo PLANTILLA y HOJA para Madrid
+        // AÑADIDO: "HOJA DE RESPUESTAS", "PLANTILLA DE RESPUESTAS", "RESPUESTAS CORRECTAS", "TURNO LIBRE", "MODELO"
         val headerPattern = Regex(
-            "(?:NÚMERO|N[UÚ]MERO|NUM|PREGUNTA|PREG|ORDEN|PLANILLA|HOJA|SOLUCIONES|CLAVE|RESPUESTAS)\\s*(?:DE)?\\s*(?:PREGUNTA|RESPUESTA|RESP|EXAMEN|CORRECTA|SOLUCION)?",
+            "(?:NÚMERO|N[UÚ]MERO|NUM|PREGUNTA|PREG|ORDEN|PLANILLA|HOJA|SOLUCIONES|CLAVE|RESPUESTAS|TURNO\\s+LIBRE|MODELO)(?:\\s+(?:DE|DEL))?\\s*(?:PREGUNTA|RESPUESTA|RESP|EXAMEN|CORRECTA|SOLUCION|TEST|EJERCICIO|[A-Z])?",
             RegexOption.IGNORE_CASE
         )
         
@@ -282,8 +295,8 @@ object ParseadorExamenes {
              for (line in lines) {
                  // Coincidir MÚLTIPLES pares en una misma línea (Tablas multicomuna)
                  // Ej: "1-A   2-B   3-C" o "1 A   2 B" o "1. A" o "1/A"
-                 // Separadores: espacios, puntos, guiones, barras, pipes, tabs...
-                 val rowPattern = Regex("(\\d{1,3})[\\s\\.\\-\\/\\\\|]+([A-Da-d])(?:\\s+|$)")
+                 // Separadores: espacios, puntos, guiones, barras, pipes, tabs... AHORA TAMBIÉN ORC artifacts (º, °)
+                 val rowPattern = Regex("(\\d{1,3})[\\s\\.\\-\\/\\\\|º°oO]+([A-Da-d])(?:\\s+|$)")
                  val matchesRow = rowPattern.findAll(line)
                  
                  for (m in matchesRow) {
@@ -310,7 +323,8 @@ object ParseadorExamenes {
              // Estrategia de "Bloque final denso": mirar las últimas 100 líneas
              val lines = texto.lines().takeLast(150)
              for (line in lines) {
-                 val rowPattern = Regex("(\\d{1,3})[\\s\\.\\-\\/\\\\|]+([A-Da-d])(?:\\s+|$)")
+                 // Alinear regex del fallback con el principal (aceptar o/º/°)
+                 val rowPattern = Regex("(\\d{1,3})[\\s\\.\\-\\/\\\\|º°oO]+([A-Da-d])(?:\\s+|$)")
                  val matchesRow = rowPattern.findAll(line)
                  for (m in matchesRow) {
                      val num = m.groupValues[1]

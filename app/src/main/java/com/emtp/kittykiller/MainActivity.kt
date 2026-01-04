@@ -73,17 +73,19 @@ class MainActivity : AppCompatActivity() {
                     return@launch
                 }
 
-                // MODO TEST / TEORÍA: Usar Repositorio
-                val modoEjecucion = if (esNube) ModoEjecucion.NUBE else ModoEjecucion.LOCAL
-
                 // Forzamos el tipo según lo que el usuario eligió en el menú
                 val tipoDocFinal = if (modoApp == "TEST") TipoDoc.TEST else TipoDoc.TEORIA
+
+                // LÓGICA DE RESTRICCIÓN: Si es un Test/Examen, SIEMPRE usar local (ignorar switch de nube)
+                val modoEjecucion = if (esNube && tipoDocFinal == TipoDoc.TEORIA) ModoEjecucion.NUBE else ModoEjecucion.LOCAL
 
                 actualizarEstado(if (esNube) "Consultando a Gemini..." else "Procesando localmente...")
 
                 // Llamada bloqueante al repositorio
                 val preguntas =
-                    generadorTests.generarTest(texto, tipoDocFinal, modoEjecucion, cantidad)
+                    generadorTests.generarTest(texto, tipoDocFinal, modoEjecucion, cantidad) { msg ->
+                        actualizarEstado(msg)
+                    }
 
                 if (preguntas.isNotEmpty()) {
                     QuizRepository.preguntas = preguntas

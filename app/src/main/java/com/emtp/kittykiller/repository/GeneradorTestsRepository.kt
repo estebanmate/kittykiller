@@ -46,11 +46,12 @@ class GeneradorTestsRepository {
         texto: String,
         tipoDoc: TipoDoc,
         modo: ModoEjecucion,
-        cantidadPreguntasTeoria: Int = 20
+        cantidadPreguntasTeoria: Int = 20,
+        onProgress: ((String) -> Unit)? = null
     ): List<Pregunta> {
 
         return when (modo) {
-            ModoEjecucion.LOCAL -> procesarLocal(texto, tipoDoc, cantidadPreguntasTeoria)
+            ModoEjecucion.LOCAL -> procesarLocal(texto, tipoDoc, cantidadPreguntasTeoria, onProgress)
             ModoEjecucion.NUBE -> procesarNube(texto, tipoDoc)
         }
     }
@@ -59,7 +60,8 @@ class GeneradorTestsRepository {
     private suspend fun procesarLocal(
         texto: String,
         tipoDoc: TipoDoc,
-        cantidad: Int
+        cantidad: Int,
+        onProgress: ((String) -> Unit)?
     ): List<Pregunta> {
         return if (tipoDoc == TipoDoc.TEST) {
             Log.d("Repo", "Procesando Test Local con Regex")
@@ -71,8 +73,10 @@ class GeneradorTestsRepository {
             // --- AQUÍ ESTABA EL ERROR ---
             // Ahora pasamos el tercer parámetro (onProgress) que exige tu función.
             // Simplemente logueamos el progreso, ya que la UI la controla MainActivity.
-            val textoGenerado = MotorIA.generarPreguntas(texto, cantidad) { actual, total ->
-                Log.d("Repo", "Progreso IA Local: Chunk $actual de $total")
+            val textoGenerado = MotorIA.generarPreguntas(texto, cantidad) { porcentaje, generadas, total ->
+                // Formateamos el progreso para que la UI lo muestre directo
+                onProgress?.invoke("Generando... $porcentaje% ($generadas/$total preguntas)")
+                Log.d("Repo", "Progreso IA ($porcentaje%): $generadas/$total")
             }
 
             // Usamos el parser específico de la IA para convertir el texto generado en objetos Pregunta

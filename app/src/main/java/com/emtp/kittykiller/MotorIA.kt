@@ -50,7 +50,7 @@ object MotorIA {
     suspend fun generarPreguntas(
         textoTeoria: String,
         cantidadTotal: Int,
-        onProgress: (Int, Int) -> Unit
+        onProgress: (Int, Int, Int) -> Unit // (Porcentaje, Generadas, TotalSolicitado)
     ): String {
         return withContext(Dispatchers.IO) {
             if (llmInference == null) return@withContext "Error: IA no inicializada."
@@ -88,8 +88,9 @@ object MotorIA {
                 val numPreguntas = preguntasPorChunk.getOrElse(indiceChunk) { 0 }
 
                 // Actualizar progreso UI (Inicio del chunk)
+                val porcentaje = ((indiceChunk.toFloat() / numChunksEstimado) * 100).toInt()
                 withContext(Dispatchers.Main) {
-                    onProgress(indiceChunk, numChunksEstimado)
+                    onProgress(porcentaje, preguntasGeneradas, cantidadTotal)
                 }
 
                 if (numPreguntas == 0) {
@@ -115,7 +116,7 @@ object MotorIA {
 
             // Actualizar progreso final
             withContext(Dispatchers.Main) {
-                onProgress(numChunksEstimado, numChunksEstimado)
+                onProgress(100, preguntasGeneradas, cantidadTotal)
             }
 
             Log.d(
@@ -151,6 +152,10 @@ OPCION_B: [Opción B]
 OPCION_C: [Opción C]
 OPCION_D: [Opción D]
 SOLUCION: [letra a,b,c,d]
+
+IMPORTANTE:
+- La SOLUCION debe ser solo la letra (a, b, c o d).
+- No uses markdown en la solución.
 
 Genera las preguntas ahora:
 <end_of_turn>
@@ -279,7 +284,8 @@ Genera las preguntas ahora:
             val opB = extraerCampo(bloque, "OPCION_B")
             val opC = extraerCampo(bloque, "OPCION_C")
             val opD = extraerCampo(bloque, "OPCION_D")
-            val solucion = extraerCampo(bloque, "SOLUCION").lowercase().take(1)
+            // Aceptamos variaciones con acento o sin él
+            val solucion = extraerCampoFuzzy(bloque, listOf("SOLUCION", "SOLUCIÓN", "RESPUESTA CORRECTA")).lowercase().take(1)
 
             // Validar que tenemos lo mínimo
             if (enunciado.isNotBlank() && opA.isNotBlank() && opB.isNotBlank() && solucion.isNotBlank()) {
@@ -299,7 +305,14 @@ Genera las preguntas ahora:
     }
 
     private fun extraerCampo(texto: String, etiqueta: String): String {
-        val regex = Regex("$etiqueta:\\s*(.*?)(?=\\n[A-Z_]+:|$)", RegexOption.DOT_MATCHES_ALL)
+        return extraerCampoFuzzy(texto, listOf(etiqueta))
+    }
+
+    private fun extraerCampoFuzzy(texto: String, etiquetas: List<String>): String {
+        // Construimos regex que busque cualquiera de las etiquetas
+        // (?:ETIQUETA1|ETIQUETA2):\s*(.*?)...
+        val keysPattern = etiquetas.joinToString("|") { Regex.escape(it) }
+        val regex = Regex("(?:$keysPattern):\\s*(.*?)(?=\\n[A-Z_]+:|$)", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
         val match = regex.find(texto)
         return match?.groupValues?.get(1)?.trim() ?: ""
     }

@@ -125,9 +125,10 @@ class ProcesadorDocumentos(private val context: Context) {
                     onProgress("Iniciando escaneo de $totalPaginas páginas...")
 
                     for (i in 0 until totalPaginas) {
-                        if (i % 5 == 0 || i == totalPaginas - 1) {
+                        if (i % 2 == 0 || i == totalPaginas - 1) { // Reportar cada 2 páginas o la última
+                            val porcentaje = (((i + 1).toFloat() / totalPaginas) * 100).toInt()
                             withContext(Dispatchers.Main) {
-                                onProgress("Escaneando página ${i + 1} de $totalPaginas...")
+                                onProgress("Escaneando... $porcentaje% (Pág ${i + 1}/$totalPaginas)")
                             }
                         }
 

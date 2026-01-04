@@ -39,15 +39,25 @@ fun CloudPreguntaDto.toPreguntaDominio(): Pregunta {
             // Buscamos explícitamente una letra aislada o al principio: "A", "a)", "Respuesta: A"
             // Primero intentamos match estricto de letra única
             val regexLetra = Regex("^[a-dA-D]$")
-            if (raw.trim().matches(regexLetra)) {
-                raw.trim().lowercase()
+            val trimmed = raw.trim()
+            
+            if (trimmed.matches(regexLetra)) {
+                trimmed.lowercase()
             } else {
                 // Si viene con basura ("A) Madrid", "Respuesta Correcta: B"), buscamos la primera letra válida
-                val match = Regex("([a-dA-D])([).:]|$)").find(raw)
-                    ?: Regex("(?:^|\\s)([a-dA-D])(?:$|\\s)").find(raw)
-                
-                // Si encontramos letra, la usamos. Si no, fallback a "a" (o loguear error)
-                match?.groupValues?.get(1)?.lowercase() ?: "a"
+                // Prioridad 1: "Opción A", "Respuesta: B", "Solución C"
+                val matchExplicit = Regex("(?:Opción|Opcion|Respuesta|Solución|Solucion|Correcta)[:\\s]+([a-dA-D])", RegexOption.IGNORE_CASE).find(raw)
+
+                if (matchExplicit != null) {
+                    matchExplicit.groupValues[1].lowercase()
+                } else {
+                    // Prioridad 2: Letra seguida de paréntesis o punto: "A)", "B."
+                    val matchPunt = Regex("([a-dA-D])([).:]|$)").find(raw)
+                    // Prioridad 3: Letra suelta entre espacios
+                        ?: Regex("(?:^|\\s)([a-dA-D])(?:$|\\s)").find(raw)
+
+                    matchPunt?.groupValues?.get(1)?.lowercase() ?: "a"
+                }
             }
         }
     )
