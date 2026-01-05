@@ -239,8 +239,9 @@ object ParseadorExamenes {
         val mapa = mutableMapOf<String, String>()
         // Regex busca: Número + (espacios/puntos/guiones opcionales) + Letra
         // (?![a-zA-Z]) asegura que la letra no sea el inicio de una palabra (ej: "1 Año")
-        // MEJORA: Acepta "o", "°", "º" como separadores OCR (ej: 1º A)
-        val regex = Regex("(\\d{1,3})[\\s\\.\\-\\/\\\\|º°oO]*([a-dA-D])(?![a-zA-Záéíóú])")
+        // MEJORA: Acepta "o", "°", "º" como separadores OCR y también pipes (|) asteriscos (*) de Markdown
+        // Regex robusta unificada: (\d+)[SEP]([a-d])
+        val regex = Regex("(\\d{1,3})[\\s\\.\\-\\/\\\\|º°oO\\*]+([a-dA-D])(?![a-zA-Záéíóú])")
 
         val matches = regex.findAll(texto).toList()
 
@@ -368,6 +369,12 @@ object ParseadorExamenes {
             // Solo consideramos líneas con cierta longitud para evitar borrar respuestas cortas (ej: "a)")
             // y que no sean solo números (paginación simple "1", "2"...) salvo que sean recurrentes
             if (lineaLimpia.length > 5) {
+                // PROTECCIÓN: No contar líneas que parecen opciones de respuesta (ej: "d) Todas son correctas")
+                // Si la línea empieza por "letra)" o "letra." o "letra-", la ignoramos para el contador de basura
+                if (Regex("^[a-dA-D][\\.\\)\\-]\\s+").containsMatchIn(lineaLimpia)) {
+                    continue
+                }
+
                 // Normalizar dígitos para agrupar "Tema 1", "Tema 2" como el mismo patrón
                 val lineaKey = lineaLimpia.replace(Regex("\\d+"), "#")
                 contadores[lineaKey] = contadores.getOrDefault(lineaKey, 0) + 1

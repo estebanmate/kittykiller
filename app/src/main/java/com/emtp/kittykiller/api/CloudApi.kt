@@ -6,7 +6,8 @@ import retrofit2.http.POST
 
 data class CloudRequest(
     val mode: String,   // "extract" o "generate"
-    val content: String // Texto extraído del PDF
+    val content: String, // Texto extraído del PDF
+    val count: Int = 20  // Cantidad de preguntas solicitadas
 )
 
 interface CloudApi {

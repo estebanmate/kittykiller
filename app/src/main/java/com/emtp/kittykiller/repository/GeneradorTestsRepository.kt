@@ -52,7 +52,7 @@ class GeneradorTestsRepository {
 
         return when (modo) {
             ModoEjecucion.LOCAL -> procesarLocal(texto, tipoDoc, cantidadPreguntasTeoria, onProgress)
-            ModoEjecucion.NUBE -> procesarNube(texto, tipoDoc)
+            ModoEjecucion.NUBE -> procesarNube(texto, tipoDoc, cantidadPreguntasTeoria)
         }
     }
 
@@ -85,17 +85,17 @@ class GeneradorTestsRepository {
     }
 
     // --- LÓGICA NUBE ---
-    private suspend fun procesarNube(texto: String, tipoDoc: TipoDoc): List<Pregunta> {
+    private suspend fun procesarNube(texto: String, tipoDoc: TipoDoc, cantidad: Int = 20): List<Pregunta> {
         val modeApi = if (tipoDoc == TipoDoc.TEST) "extract" else "generate"
 
-        Log.d("Repo", "Llamando a Cloud ($modeApi)")
+        Log.d("Repo", "Llamando a Cloud ($modeApi) para $cantidad preguntas")
 
         // SANITIZACIÓN: Eliminar caracteres de control problemáticos antes de enviar
         val textoSanitizado = texto.replace("\u000C", "") // Eliminar Form Feed
 
         try {
             val response = cloudApi.procesarDocumento(
-                CloudRequest(mode = modeApi, content = textoSanitizado)
+                CloudRequest(mode = modeApi, content = textoSanitizado, count = cantidad)
             )
 
             if (response.success && !response.data.isNullOrEmpty()) {
