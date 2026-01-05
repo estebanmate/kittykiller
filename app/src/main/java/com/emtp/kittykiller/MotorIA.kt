@@ -31,8 +31,9 @@ object MotorIA {
             if (llmInference != null) return@withContext true
             try {
                 // Buscamos el modelo en el almacenamiento interno (descargado previamente)
-                val modelFile = File(context.filesDir, "gemma-2b-it-cpu-int4.bin")
-                if (!modelFile.exists()) return@withContext false
+                File(context.filesDir, "gemma-2b-it-cpu-int4.bin")
+                val modelFile = File(context.filesDir, "gemma-2-2b-it-cpu-int8.task")
+                //if (!modelFile.exists()) return@withContext false
 
                 val options = LlmInference.LlmInferenceOptions.builder()
                     .setModelPath(modelFile.absolutePath)

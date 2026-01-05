@@ -16,6 +16,11 @@ object GestorDescargas {
         "https://huggingface.co/ASahu16/gemma/resolve/main/gemma-2b-it-cpu-int4.bin"
     private const val MODEL_FILENAME = "gemma-2b-it-cpu-int4.bin"
 
+//    private const val MODEL_URL =
+//        "https://huggingface.co/estebanmate/Pilutests/blob/main/gemma2-2b-it-cpu-int8.task"
+//    private const val MODEL_FILENAME = "gemma2-2b-it-cpu-int8.task"
+
+
     fun obtenerArchivoModelo(context: Context): File {
         return File(context.filesDir, MODEL_FILENAME)
     }
