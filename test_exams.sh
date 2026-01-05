@@ -59,7 +59,7 @@ echo ""
 # Test 4: Madrid (55 questions, scanned PDF, table at beginning)
 echo "4. MADRID EXAM"
 echo "   Expected: 55 questions, scanned PDF, answer table at beginning"
-file=$(ls -1 | grep -i "MADRID")
+file="Madrid Test.pdf"
 pdftotext "$file" /tmp/madrid.txt 2>/dev/null
 text_length=$(wc -c < /tmp/madrid.txt)
 echo "   Found: $text_length characters extracted"
@@ -67,7 +67,7 @@ if [ "$text_length" -lt 100 ]; then
     echo "   Note: Scanned PDF - requires OCR"
     echo "   ✓ EXPECTED (OCR will be used by app)"
 else
-    questions=$(grep -c "^[0-9]\{1,3\}\." /tmp/madrid.txt)
+    questions=$(grep -c "^\(\*\*\)*[0-9]\{1,3\}\." /tmp/madrid.txt)
     echo "   Found: $questions questions"
 fi
 echo ""

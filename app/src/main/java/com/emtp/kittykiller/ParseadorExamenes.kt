@@ -9,9 +9,10 @@ object ParseadorExamenes {
     // Estrategia:
     // 1. Número seguido de punto/paréntesis/guión (ej: "1.", "1)", "1-")
     //    IMPORTANTE: Se añade negative lookahead (?!\d) para evitar que "40.2" se detecte como pregunta 40 (subapartados legales).
+    //    MEJORA: Soporta asteriscos de markdown al inicio "**1."
     // 2. O número seguido de espacio si después viene una Mayúscula (ej: "1 ¿Cuál...") para casos donde el OCR se come el punto.
     private val PATRON_INICIO_PREGUNTA = Pattern.compile(
-        "(?:^|\\n|\\s)(\\d{1,3})\\s?[\\.\\)\\-](?!\\d)(?:\\s*\\n)?\\s*|(?:^|\\n)(\\d{1,3})\\s+(?=[A-Z¿¡])"
+        "(?:^|\\n|\\s)(?:\\*{0,2})(\\d{1,3})\\s?[\\.\\)\\-](?!\\d)(?:\\s*\\n)?\\s*|(?:^|\\n)(\\d{1,3})\\s+(?=[A-Z¿¡])"
     )
 
     // PATRÓN OPCIONES: Detecta a), a., A), A. al inicio de línea o tras espacio
@@ -107,6 +108,8 @@ object ParseadorExamenes {
         var enunciado = bloque.substring(inicioEnunciadoTexto, finEnunciadoTexto).trim()
         // Limpieza extra: quitar guiones o puntos iniciales residuales
         enunciado = enunciado.replace(Regex("^\\s*[-.]\\s*"), "")
+        // Limpieza de Markdown: quitar asteriscos de negrita
+        enunciado = enunciado.replace("**", "")
         // Normalizar espacios en enunciado (unir saltos de línea)
         enunciado = enunciado.replace(Regex("\\s+"), " ")
 
@@ -295,8 +298,9 @@ object ParseadorExamenes {
              for (line in lines) {
                  // Coincidir MÚLTIPLES pares en una misma línea (Tablas multicomuna)
                  // Ej: "1-A   2-B   3-C" o "1 A   2 B" o "1. A" o "1/A"
-                 // Separadores: espacios, puntos, guiones, barras, pipes, tabs... AHORA TAMBIÉN ORC artifacts (º, °)
-                 val rowPattern = Regex("(\\d{1,3})[\\s\\.\\-\\/\\\\|º°oO]+([A-Da-d])(?:\\s+|$)")
+                 // Separadores: espacios, puntos, guiones, barras, pipes, tabs... AHORA TAMBIÉN ORC artifacts (º, °) y Markdown (*, |)
+                 // Regex mejorada para tablas Markdown: | 1 | **a** |
+                 val rowPattern = Regex("(\\d{1,3})[\\s\\.\\-\\/\\\\|º°oO\\*]+([A-Da-d])(?:[\\*\\s\\|]+|$)")
                  val matchesRow = rowPattern.findAll(line)
                  
                  for (m in matchesRow) {

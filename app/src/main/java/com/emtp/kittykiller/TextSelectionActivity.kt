@@ -15,6 +15,7 @@ class TextSelectionActivity : AppCompatActivity() {
     private lateinit var btnConfirmarSeleccion: Button
 
 
+    private var textoCompleto: String = ""
     private var cantidadPreguntas: Int = 20
 
     // Variables para guardar la última selección válida
