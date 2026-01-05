@@ -10,16 +10,25 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import java.util.Locale
 
+import android.graphics.Color
+import android.text.Spannable
+import android.text.SpannableString
+import android.text.style.BackgroundColorSpan
+import android.widget.ScrollView
+
 class AudioActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private lateinit var tts: TextToSpeech
     private lateinit var tvEstadoAudio: TextView
     private lateinit var tvTextoActual: TextView
+    private lateinit var scrollViewTexto: ScrollView
     private lateinit var btnPlayPause: Button
     private lateinit var seekBarVelocidad: SeekBar
     private lateinit var btnSalir: Button
 
     private var listaParrafos: List<String> = emptyList()
+    private var rangosParrafos: List<Pair<Int, Int>> = emptyList() // Start, End
+    private var textoCompletoMostrado: String = ""
     private var indiceActual = 0
     private var estaReproduciendo = false
     private var velocidad = 1.0f
@@ -31,6 +40,7 @@ class AudioActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         // Inicializar vistas
         tvEstadoAudio = findViewById(R.id.tvEstadoAudio)
         tvTextoActual = findViewById(R.id.tvTextoActual)
+        scrollViewTexto = findViewById(R.id.scrollViewTexto)
         btnPlayPause = findViewById(R.id.btnPlayPause)
         seekBarVelocidad = findViewById(R.id.seekBarVelocidad)
         btnSalir = findViewById(R.id.btnSalirAudio)
@@ -40,8 +50,26 @@ class AudioActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         tvEstadoAudio.text = "Cargando: $titulo"
 
-        // Dividir texto en párrafos para mejor gestión del TTS
+    // Dividir texto en párrafos para mejor gestión del TTS
         listaParrafos = textoCompleto.split("\n").filter { it.isNotBlank() }
+
+        // Construir texto completo con estructura
+        val sb = StringBuilder()
+        val nuevosRangos = mutableListOf<Pair<Int, Int>>()
+        var desplazamiento = 0
+
+        listaParrafos.forEach { parrafo ->
+            sb.append(parrafo).append("\n\n")
+            val fin = desplazamiento + parrafo.length
+            nuevosRangos.add(Pair(desplazamiento, fin))
+            desplazamiento = fin + 2 // +2 por los \n\n
+        }
+
+        textoCompletoMostrado = sb.toString()
+        rangosParrafos = nuevosRangos
+
+        // Mostrar texto completo de una vez
+        tvTextoActual.text = textoCompletoMostrado
 
         if (listaParrafos.isEmpty()) {
             Toast.makeText(this, "No se pudo extraer texto leíble", Toast.LENGTH_SHORT).show()
@@ -116,10 +144,14 @@ class AudioActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             btnPlayPause.text = "PAUSAR"
 
             val textoParaLeer = listaParrafos[indiceActual]
-            tvTextoActual.text = textoParaLeer // Mostrar lo que lee
-            tvEstadoAudio.text = "Leyendo párrafo ${indiceActual + 1} de ${listaParrafos.size}"
+            // tvTextoActual.text = textoParaLeer // YA NO REEMPLAZAMOS EL TEXTO
 
+            tvEstadoAudio.text = "Leyendo párrafo ${indiceActual + 1} de ${listaParrafos.size}"
             tts.setSpeechRate(velocidad)
+
+            // --- ILUMINAR PÁRRAFO ACTUAL ---
+            resaltarParrafoActual()
+            // --------------------------------
 
             // Usamos QUEUE_FLUSH para limpiar lo anterior y hablar ya
             val params = Bundle()
@@ -132,6 +164,37 @@ class AudioActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         estaReproduciendo = false
         btnPlayPause.text = "REPRODUCIR"
         tts.stop()
+    }
+
+    private fun resaltarParrafoActual() {
+        if (indiceActual !in rangosParrafos.indices) return
+
+        val (inicio, fin) = rangosParrafos[indiceActual]
+        val spannable = SpannableString(textoCompletoMostrado)
+
+        // Aplicar color de fondo (Amarillo suave o acorde al tema)
+        spannable.setSpan(
+            BackgroundColorSpan(Color.parseColor("#FFF59D")), // Amarillo claro
+            inicio,
+            fin,
+            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+
+        tvTextoActual.text = spannable
+
+        // Auto-scroll para mantener el texto visible
+        scrollViewTexto.post {
+            try {
+                val layout = tvTextoActual.layout
+                if (layout != null) {
+                    val linea = layout.getLineForOffset(inicio)
+                    val y = layout.getLineTop(linea)
+                    scrollViewTexto.smoothScrollTo(0, y)
+                }
+            } catch (e: Exception) {
+                // Ignorar error de layout
+            }
+        }
     }
 
     override fun onDestroy() {

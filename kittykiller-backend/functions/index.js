@@ -14,7 +14,7 @@ exports.procesarDocumentoTest = onRequest({ cors: true, secrets: ["GEMINI_API_KE
   }
 
   try {
-    const { mode, content } = req.body;
+    const { mode, content, count = 20 } = req.body;
 
     if (!content) {
       res.status(400).json({ error: "Falta el contenido del documento." });
@@ -62,7 +62,7 @@ exports.procesarDocumentoTest = onRequest({ cors: true, secrets: ["GEMINI_API_KE
       `;
     } else {
       systemInstruction = `
-        Genera un examen test de 20 preguntas nivel TCAE basado en el texto.
+        Genera un examen test de ${count} preguntas nivel TCAE basado en el texto.
         Campo 'respuesta_correcta': Solo la letra mayúscula (A, B, C, D).
         Salida JSON estricta.
       `;

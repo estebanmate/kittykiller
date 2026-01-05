@@ -31,6 +31,7 @@
         android:progress="3" />
 
     <ScrollView
+        android:id="@+id/scrollViewTexto"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
