@@ -14,8 +14,12 @@ class TextSelectionActivity : AppCompatActivity() {
     private lateinit var tvEstadoSeleccion: TextView
     private lateinit var btnConfirmarSeleccion: Button
 
-    private var textoCompleto: String = ""
+
     private var cantidadPreguntas: Int = 20
+
+    // Variables para guardar la última selección válida
+    private var ultimoInicioSeleccion: Int = -1
+    private var ultimoFinSeleccion: Int = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -94,6 +98,10 @@ class TextSelectionActivity : AppCompatActivity() {
             val textoSeleccionado = textoCompleto.substring(start, end)
             val longitud = textoSeleccionado.length
 
+            // GUARDAMOS la selección válida
+            ultimoInicioSeleccion = start
+            ultimoFinSeleccion = end
+
             tvEstadoSeleccion.text = "✓ Seleccionados $longitud caracteres"
             tvEstadoSeleccion.setTextColor(ContextCompat.getColor(this, R.color.text_primary))
             btnConfirmarSeleccion.isEnabled = longitud >= 100 // Mínimo 100 caracteres
@@ -115,8 +123,9 @@ class TextSelectionActivity : AppCompatActivity() {
     }
 
     private fun confirmarYEnviarSeleccion() {
-        val start = tvTextoDocumento.selectionStart
-        val end = tvTextoDocumento.selectionEnd
+        // Usamos los índices cacheados en lugar de los actuales (que pueden ser -1 al perder el foco)
+        val start = ultimoInicioSeleccion
+        val end = ultimoFinSeleccion
 
         if (start >= 0 && end > start) {
             val textoSeleccionado = textoCompleto.substring(start, end)

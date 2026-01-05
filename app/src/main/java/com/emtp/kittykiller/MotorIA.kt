@@ -81,6 +81,7 @@ object MotorIA {
             var indiceChunk = 0
 
             // Procesar chunks de forma lazy (uno a la vez)
+            withContext(Dispatchers.Main) { onProgress(0, 0, cantidadTotal) }
             val chunks = dividirEnChunksInteligentes(textoLimpio)
             for (chunk in chunks) {
                 // Verificar si el usuario canceló la operación
@@ -88,12 +89,7 @@ object MotorIA {
 
                 val numPreguntas = preguntasPorChunk.getOrElse(indiceChunk) { 0 }
 
-                // Actualizar progreso UI (Inicio del chunk)
-                val porcentaje = ((indiceChunk.toFloat() / numChunksEstimado) * 100).toInt()
-                withContext(Dispatchers.Main) {
-                    onProgress(porcentaje, preguntasGeneradas, cantidadTotal)
-                }
-
+                // Verificamos si hay preguntas asignadas a este chunk
                 if (numPreguntas == 0) {
                     indiceChunk++
                     continue
@@ -110,6 +106,12 @@ object MotorIA {
                     val conteo = contarPreguntasGeneradas(respuestaParcial)
                     preguntasGeneradas += conteo
                     Log.d("MotorIA", "Chunk ${chunk.indice + 1}: generadas $conteo preguntas")
+                    
+                    // Actualizamos progreso basado en PREGUNTAS REALES
+                    val porcentaje = ((preguntasGeneradas.toFloat() / cantidadTotal) * 100).toInt().coerceAtMost(100)
+                    withContext(Dispatchers.Main) {
+                        onProgress(porcentaje, preguntasGeneradas, cantidadTotal)
+                    }
                 }
 
                 indiceChunk++
@@ -344,15 +346,29 @@ Genera las preguntas ahora siguiendo el ejemplo:
         return extraerCampoFuzzy(texto, listOf(etiqueta))
     }
 
-    private fun extraerCampoFuzzy(texto: String, etiquetas: List<String>): String {
-        // Construimos regex que busque cualquiera de las etiquetas
-        val keysPattern = etiquetas.joinToString("|") { Regex.escape(it) }
+    private fun extraerCampoFuzzy(texto: String, etiquetasTarget: List<String>): String {
+        // Todas las posibles etiquetas que pueden aparecer en la respuesta
+        // Esto sirve como "freno" para el regex: deja de capturar cuando ve una de estas
+        val todasLasEtiquetas = listOf(
+            "ENUNCIADO",
+            "OPCION_A", "OPCION_B", "OPCION_C", "OPCION_D",
+            "SOLUCION", "SOLUCIÓN", "RESPUESTA CORRECTA",
+            "### PREGUNTA ###" // También paramos si vemos el inicio de otra pregunta
+        )
 
-        // REGEX MEJORADA:
-        // No exige salto de línea (\n) antes de la siguiente etiqueta.
-        // (?=\\s*(?:$keysPattern)|$) -> Mira hacia adelante buscando la siguiente etiqueta o el final del string
+        // 1. Construimos el patrón de lo que QUEREMOS buscar (ej: "OPCION_A")
+        val targetPattern = etiquetasTarget.joinToString("|") { Regex.escape(it) }
+
+        // 2. Construimos el patrón de lo que nos debe DETENER (cualquier etiqueta conocida)
+        val stopPattern = todasLasEtiquetas.joinToString("|") { Regex.escape(it) }
+
+        // REGEX EXPLICADA:
+        // (?:$targetPattern): -> Busca la etiqueta objetivo + dos puntos
+        // \s* -> Ignora espacios después de los dos puntos
+        // (.*?) -> CAPTURA el contenido de forma no codiciosa...
+        // (?=\s*(?:$stopPattern)|$) -> ...hasta que encuentre (lookahead) una StopLabel o el final del string
         val regex = Regex(
-            "(?:$keysPattern):\\s*(.*?)(?=\\s*(?:$keysPattern)|$)",
+            "(?:$targetPattern):\\s*(.*?)(?=\\s*(?:$stopPattern)|$)",
             setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
         )
 

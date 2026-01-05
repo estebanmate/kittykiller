@@ -53,51 +53,58 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/tvSubtitulo">
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:padding="8dp">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Usar Super-Inteligencia (Nube)"
-                android:textColor="?android:attr/textColorPrimary"
-                android:textSize="16sp" />
-
-            <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/switchModoNube"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:checked="false" />
-
-        </LinearLayout>
-
         <Button
             android:id="@+id/btnCargarTest"
             android:layout_width="match_parent"
             android:layout_height="60dp"
             android:layout_marginBottom="16dp"
             android:backgroundTint="#2196F3"
-            android:text="📝  CARGAR TEST (PDF)"
+            android:text="Cargar Test"
             android:textColor="@android:color/white"
             android:textSize="16sp"
             android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/btnCargarTeoria"
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="60dp"
+            android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
-            android:backgroundTint="#9C27B0"
-            android:text="🧠  IA GENERADOR (TEORÍA)"
-            android:textColor="@android:color/white"
-            android:textSize="16sp"
-            android:textStyle="bold" />
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnCargarTeoria"
+                android:layout_width="0dp"
+                android:layout_height="60dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:backgroundTint="#9C27B0"
+                android:text="Generar Test"
+                android:textColor="@android:color/white"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="center_vertical"
+                android:orientation="vertical"
+                android:paddingStart="8dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Cloud"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:textSize="12sp"
+                    android:gravity="center"/>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switchModoNube"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="false" />
+            </LinearLayout>
+
+        </LinearLayout>
 
         <Button
             android:id="@+id/btnAudioTeoria"
@@ -105,7 +112,7 @@
             android:layout_height="60dp"
             android:layout_marginBottom="16dp"
             android:backgroundTint="#E91E63"
-            android:text="🎧  AUDIO TEORÍA"
+            android:text="Audio Teoría"
             android:textColor="@android:color/white"
             android:textSize="16sp"
             android:textStyle="bold" />
@@ -121,7 +128,7 @@
             android:layout_width="match_parent"
             android:layout_height="60dp"
             android:backgroundTint="#FF9800"
-            android:text="⏪  RETOMAR ÚLTIMO TEST"
+            android:text="Retomar Test"
             android:textColor="@android:color/white"
             android:textSize="16sp"
             android:textStyle="bold" />

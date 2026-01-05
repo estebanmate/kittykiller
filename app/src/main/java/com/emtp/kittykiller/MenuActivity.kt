@@ -80,10 +80,7 @@ class MenuActivity : AppCompatActivity() {
         }
 
         // Feedback visual del switch
-        switchModoNube.setOnCheckedChangeListener { _, isChecked ->
-            btnCargarTeoria.text =
-                if (isChecked) "🧠  GENERAR (NUBE GEMINI)" else "🧠  GENERAR (IA LOCAL)"
-        }
+
     }
 
     private fun abrirSelector() {
