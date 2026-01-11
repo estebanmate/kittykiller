@@ -35,84 +35,138 @@ class ProcesadorDocumentos(private val context: Context) {
         onProgress: (String) -> Unit
     ): Pair<TipoDoc, String> {
         return withContext(Dispatchers.IO) {
-            val tipo = determinarTipo(nombreArchivo)
             val extension = nombreArchivo.substringAfterLast('.', "").lowercase()
             val tempFile = crearArchivoTemporal(uri, extension)
-            var texto = ""
-
             try {
-                texto = when (extension) {
-                    "pdf" -> leerPdfInteligente(tempFile, onProgress)
-                    "docx" -> {
-                        onProgress("Leyendo documento Word...")
-                        leerDocx(tempFile)
-                    }
+                // Delegamos en la función que procesa un archivo ya físico
+                procesarFicheroExistente(tempFile, nombreArchivo, null, onProgress)
+            } finally {
+                if (tempFile.exists()) tempFile.delete()
+            }
+        }
+    }
 
-                    "doc" -> {
-                        onProgress("Leyendo documento Word antiguo...")
-                        leerDocLegacy(tempFile)
-                    }
-
-                    else -> "Formato no soportado ($extension)"
-                }
-
-                // LÓGICA DE LIMPIEZA ESPECÍFICA PARA TEORÍA
-                if (tipo == TipoDoc.TEORIA) {
-                    if (extension == "docx" || extension == "doc") {
-                        onProgress("Documento Word detectado: Se procesará todo el contenido.")
-                        // No limpiamos DOCX, devolvemos todo tal cual
-                    } else {
-                        onProgress("Detectando inicio real del tema (saltando introducciones)...")
-                        val esUcademy = nombreArchivo.contains("TCAE SERMAS", ignoreCase = true) ||
-                                       nombreArchivo.contains("Ucademy", ignoreCase = true) ||
-                                       texto.contains("Ucademy", ignoreCase = true)
-                        texto = limpiarContenidoTeoriaPDF(texto, esUcademy)
-                    }
-                }
-
+    suspend fun procesarFicheroExistente(
+        file: File,
+        nombreArchivo: String,
+        paginas: List<Int>?,
+        onProgress: (String) -> Unit
+    ): Pair<TipoDoc, String> {
+        return withContext(Dispatchers.IO) {
+            val tipo = determinarTipo(nombreArchivo)
+            val extension = nombreArchivo.substringAfterLast('.', "").lowercase()
+            
+            var texto = try {
+                procesarArchivoFisico(file, extension, paginas, onProgress)
             } catch (e: Exception) {
                 e.printStackTrace()
-                texto = "Error al leer el archivo: ${e.message}"
-            } finally {
-                // Borrar archivo temporal para no llenar el almacenamiento
-                if (tempFile.exists()) tempFile.delete()
+                "Error al leer el archivo: ${e.message}"
+            }
+
+            // LÓGICA DE LIMPIEZA ESPECÍFICA PARA TEORÍA
+            if (tipo == TipoDoc.TEORIA) {
+                if (extension == "docx" || extension == "doc") {
+                    onProgress("Documento Word detectado: Se procesará todo el contenido.")
+                } else {
+                    onProgress("Detectando inicio real del tema (saltando introducciones)...")
+                    val esUcademy = nombreArchivo.contains("TCAE SERMAS", ignoreCase = true) ||
+                            nombreArchivo.contains("Ucademy", ignoreCase = true) ||
+                            texto.contains("Ucademy", ignoreCase = true)
+                    texto = limpiarContenidoTeoriaPDF(texto, esUcademy)
+                }
             }
             Pair(tipo, texto)
         }
     }
 
+    // Nueva función pública para preparar archivo sin procesar texto aún
+    fun prepararArchivoTemporal(uri: Uri, nombreArchivo: String): File {
+        val extension = nombreArchivo.substringAfterLast('.', "").lowercase()
+        return crearArchivoTemporal(uri, extension)
+    }
+
+    // Nueva función para procesar archivo ya existente (opcionalmente filtrando páginas)
+    suspend fun procesarArchivoFisico(
+        file: File,
+        extension: String,
+        paginasSeleccionadas: List<Int>? = null, // null = todas
+        onProgress: (String) -> Unit
+    ): String {
+        return withContext(Dispatchers.IO) {
+            when (extension) {
+                "pdf" -> leerPdfInteligente(file, paginasSeleccionadas, onProgress)
+                "docx" -> {
+                    onProgress("Leyendo documento Word...")
+                    leerDocx(file) // No soporta paginación aún
+                }
+                "doc" -> {
+                    onProgress("Leyendo documento Word antiguo...")
+                    leerDocLegacy(file) // No soporta paginación aún
+                }
+                else -> "Formato no soportado ($extension)"
+            }
+        }
+    }
+
+    private fun crearArchivoTemporal(uri: Uri, extension: String): File {
+        val tempFile = File.createTempFile("temp_doc_", ".$extension", context.cacheDir)
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            FileOutputStream(tempFile).use { output ->
+                input.copyTo(output)
+            }
+        }
+        return tempFile
+    }
+
     // --- LECTURA DE PDF (Híbrida: Texto nativo + OCR si falla) ---
-    private suspend fun leerPdfInteligente(file: File, onProgress: (String) -> Unit): String {
+    private suspend fun leerPdfInteligente(
+        file: File,
+        paginas: List<Int>? = null,
+        onProgress: (String) -> Unit
+    ): String {
         var textoNativo = ""
 
         try {
             onProgress("Analizando estructura del PDF...")
             PDDocument.load(file).use { document ->
                 val stripper = PDFTextStripper()
-                stripper.sortByPosition = true // Importante para mantener orden de columnas
-                stripper.pageEnd = "\u000C" // Añadir Form Feed al final de cada página para poder contarlas
-                textoNativo = stripper.getText(document)
+                stripper.sortByPosition = true
+                stripper.pageEnd = "\u000C"
+
+                if (paginas == null) {
+                    textoNativo = stripper.getText(document)
+                } else {
+                    val sb = StringBuilder()
+                    for (p in paginas) {
+                        stripper.startPage = p + 1 // PDFBox es 1-based
+                        stripper.endPage = p + 1
+                        sb.append(stripper.getText(document))
+                    }
+                    textoNativo = sb.toString()
+                }
             }
         } catch (e: Exception) {
             Log.e("PDF", "Error lectura nativa", e)
         }
 
         // Lógica de decisión: ¿Es texto real o una imagen/escaneado?
-        // 1. Si es muy corto (< 200 chars), seguro es imagen.
-        // 2. Si tiene muchos caracteres 'desconocidos' (), es basura de codificación.
         val esMuyCorto = textoNativo.trim().length < 200
         val pareceBasura = textoNativo.count { it == '\uFFFD' } > 20
 
         if (esMuyCorto || pareceBasura) {
             onProgress("Texto digital no legible. Activando Escáner OCR...")
-            return realizarOCR(file, onProgress)
+            return realizarOCR(file, paginas, onProgress)
         }
 
         return textoNativo
     }
 
     // --- MOTOR OCR (Google ML Kit) ---
-    private suspend fun realizarOCR(file: File, onProgress: (String) -> Unit): String {
+    private suspend fun realizarOCR(
+        file: File,
+        paginas: List<Int>? = null,
+        onProgress: (String) -> Unit
+    ): String {
         val textoCompleto = StringBuilder()
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
@@ -121,19 +175,23 @@ class ProcesadorDocumentos(private val context: Context) {
                 .use { fileDescriptor ->
                     val renderer = PdfRenderer(fileDescriptor)
                     val totalPaginas = renderer.pageCount
+                    
+                    // Si paginas es null, usamos 0..total-1. Si no, usamos la lista.
+                    val paginasAProcesar = paginas ?: (0 until totalPaginas).toList()
 
-                    onProgress("Iniciando escaneo de $totalPaginas páginas...")
+                    onProgress("Iniciando escaneo de ${paginasAProcesar.size} páginas...")
 
-                    for (i in 0 until totalPaginas) {
-                        if (i % 2 == 0 || i == totalPaginas - 1) { // Reportar cada 2 páginas o la última
-                            val porcentaje = (((i + 1).toFloat() / totalPaginas) * 100).toInt()
-                            withContext(Dispatchers.Main) {
-                                onProgress("Escaneando... $porcentaje% (Pág ${i + 1}/$totalPaginas)")
-                            }
+                    paginasAProcesar.forEachIndexed { index, pageIndex ->
+                         if (pageIndex >= totalPaginas) return@forEachIndexed // Safety check
+
+                        // Reportar progreso
+                        val porcentaje = (((index + 1).toFloat() / paginasAProcesar.size) * 100).toInt()
+                        withContext(Dispatchers.Main) {
+                            onProgress("Escaneando... $porcentaje% (Pág ${pageIndex + 1})")
                         }
 
-                        // Renderizar página a imagen de alta calidad (escala x2)
-                        val page = renderer.openPage(i)
+                        // Renderizar página
+                        val page = renderer.openPage(pageIndex)
                         val bitmap = Bitmap.createBitmap(
                             page.width * 2,
                             page.height * 2,
@@ -144,10 +202,10 @@ class ProcesadorDocumentos(private val context: Context) {
                         // Procesar con ML Kit
                         val image = InputImage.fromBitmap(bitmap, 0)
                         val result = recognizer.process(image).await()
-                        textoCompleto.append(result.text).append("\n\u000C\n") // Añadir separador de página también en OCR
+                        textoCompleto.append(result.text).append("\n\u000C\n")
 
                         page.close()
-                        bitmap.recycle() // Liberar memoria inmediatamente
+                        bitmap.recycle()
                     }
                     renderer.close()
                 }
@@ -267,13 +325,5 @@ class ProcesadorDocumentos(private val context: Context) {
         }
     }
 
-    private fun crearArchivoTemporal(uri: Uri, extension: String): File {
-        val tempFile = File.createTempFile("temp_doc_", ".$extension", context.cacheDir)
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            FileOutputStream(tempFile).use { output ->
-                input.copyTo(output)
-            }
-        }
-        return tempFile
-    }
+
 }

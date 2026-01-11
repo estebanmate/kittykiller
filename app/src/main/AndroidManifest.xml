@@ -40,7 +40,7 @@
 
         <activity android:name=".PreguntaActivity" />
 
-        <activity android:name=".TextSelectionActivity" />
+        <activity android:name=".PageSelectionActivity" />
     </application>
 
 </manifest>

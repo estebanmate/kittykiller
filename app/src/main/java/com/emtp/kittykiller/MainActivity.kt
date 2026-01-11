@@ -25,26 +25,21 @@ class MainActivity : AppCompatActivity() {
     private var tempCantidad: Int = 20
     private var tempTipoDoc: TipoDoc = TipoDoc.TEST
 
-    private val seleccionTextoLauncher =
+    private var tempFile: java.io.File? = null
+    private var tempNombreArchivo: String = ""
+
+    private val pageSelectionLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
-                val textoSeleccionado = result.data?.getStringExtra("TEXTO_SELECCIONADO")
-                if (!textoSeleccionado.isNullOrBlank()) {
-                    // Continuar con el texto seleccionado
-                    ejecutarLogicaNegocio(
-                        textoSeleccionado,
-                        tempModoApp,
-                        tempEsNube,
-                        tempCantidad,
-                        tempTipoDoc
-                    )
+                val selectedPages = result.data?.getIntegerArrayListExtra("SELECTED_PAGES")
+                if (selectedPages != null && selectedPages.isNotEmpty()) {
+                    // Continuar con las páginas seleccionadas
+                    procesarTextoFinal(selectedPages)
                 } else {
-                    terminarConError("Error: No se recibió texto seleccionado.")
+                    terminarConError("Error: No se seleccionaron páginas.")
                 }
             } else {
-                // Si cancela, volvemos al menú o cerramos (opción de diseño).
-                // Aquí optamos por cerrar con mensaje.
-                terminarConError("Selección de texto cancelada.")
+                terminarConError("Selección de páginas cancelada.")
             }
         }
 
@@ -74,55 +69,75 @@ class MainActivity : AppCompatActivity() {
         val nombreArchivo = obtenerNombreArchivo(uri)
         QuizRepository.nombreArchivoOriginal = nombreArchivo
 
-        // Paso A: Leer el archivo (Extracción de texto)
-        gestorDocumentos.clasificarYProcesar(
+        // Guardar estado temporal
+        tempModoApp = modoApp
+        tempEsNube = esNube
+        tempCantidad = cantidad
+        tempNombreArchivo = nombreArchivo
+
+        // Paso A: Preparar archivo (Solo copiar, no extraer texto aún)
+        gestorDocumentos.prepararArchivo(
             uri,
             nombreArchivo,
-            onResult = { texto, tipoDetectado ->
-                // Guardar estado temporal
-                tempModoApp = modoApp
-                tempEsNube = esNube
-                tempCantidad = cantidad
-                tempTipoDoc = tipoDetectado
-
-                // Paso B: Decidir si mostrar selector o seguir directo
+            onReady = { file ->
+                tempFile = file
+                
+                // Paso B: Decidir flujo
                 if (modoApp == "TEORIA") {
-                    mostrarDialogoOpcionSeleccion(texto)
+                    mostrarDialogoOpcionSeleccion(file)
                 } else {
-                    ejecutarLogicaNegocio(texto, modoApp, esNube, cantidad, tipoDetectado)
+                    // Test/Audio: Procesar todo directo
+                    procesarTextoFinal(null)
                 }
             },
-            onError = { error -> terminarConError(error) },
-            onProgress = { msg -> actualizarEstado(msg) } // GestorDocumentos ahora reporta progreso
+            onError = { error -> terminarConError(error) }
         )
     }
 
-    private fun mostrarDialogoOpcionSeleccion(textoCompleto: String) {
-        AlertDialog.Builder(this)
-            .setTitle("Opciones de Procesamiento")
-            .setMessage("¿Deseas generar preguntas de TODO el documento o seleccionar una parte específica?")
-            .setPositiveButton("Todo el documento") { _, _ ->
-                ejecutarLogicaNegocio(
-                    textoCompleto,
-                    tempModoApp,
-                    tempEsNube,
-                    tempCantidad,
-                    tempTipoDoc
-                )
-            }
-            .setNeutralButton("Seleccionar texto") { _, _ ->
-                launchTextSelection(textoCompleto)
-            }
-            .setCancelable(false) // Obligar a elegir
-            .show()
+    private fun procesarTextoFinal(paginas: List<Int>?) {
+        val file = tempFile ?: return
+        
+        gestorDocumentos.procesarArchivoYaPreparado(
+            file,
+            tempNombreArchivo,
+            paginas,
+            onResult = { texto, tipoDetectado ->
+                tempTipoDoc = tipoDetectado
+                ejecutarLogicaNegocio(texto, tempModoApp, tempEsNube, tempCantidad, tipoDetectado)
+            },
+            onError = { error -> terminarConError(error) },
+            onProgress = { msg -> actualizarEstado(msg) }
+        )
     }
 
-    private fun launchTextSelection(texto: String) {
-        val intent = Intent(this, TextSelectionActivity::class.java).apply {
-            putExtra("TEXTO_COMPLETO", texto)
-            putExtra("CANTIDAD_PREGUNTAS", tempCantidad)
+    private fun mostrarDialogoOpcionSeleccion(file: java.io.File) {
+        val extension = file.extension.lowercase()
+        val esPdf = extension == "pdf"
+        
+        val builder = AlertDialog.Builder(this)
+            .setTitle("Opciones de Procesamiento")
+            .setMessage("¿Deseas generar preguntas de TODO el documento o seleccionar páginas específicas${if (!esPdf) " (Sólo disponible para PDF)" else ""}?")
+            .setPositiveButton("Todo el documento") { _, _ ->
+                procesarTextoFinal(null)
+            }
+            .setCancelable(false)
+
+        if (esPdf) {
+            builder.setNeutralButton("Seleccionar Páginas") { _, _ ->
+                launchPageSelection(file)
+            }
+        } else {
+            // Si es Word, avisamos que no se puede seleccionar páginas (o podríamos intentar un visor simple, pero por ahora limitamos a PDF)
         }
-        seleccionTextoLauncher.launch(intent)
+
+        builder.show()
+    }
+
+    private fun launchPageSelection(file: java.io.File) {
+        val intent = Intent(this, PageSelectionActivity::class.java).apply {
+            putExtra("FILE_PATH", file.absolutePath)
+        }
+        pageSelectionLauncher.launch(intent)
     }
 
     private fun ejecutarLogicaNegocio(

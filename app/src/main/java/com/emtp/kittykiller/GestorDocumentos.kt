@@ -55,4 +55,60 @@ class GestorDocumentos(private val context: Context) {
             }
         }
     }
+    // Método para preparar el archivo (copiar a cache) sin procesar texto
+    fun prepararArchivo(
+        uri: Uri,
+        nombreArchivo: String,
+        onReady: (File) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                if (nombreArchivo.isBlank()) {
+                    onError("Nombre de archivo inválido.")
+                    return@launch
+                }
+
+                val resultFile = withContext(Dispatchers.IO) {
+                    procesador.prepararArchivoTemporal(uri, nombreArchivo)
+                }
+                
+                onReady(resultFile)
+
+            } catch (e: Exception) {
+                onError("Error preparando archivo: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    // Método para procesar un archivo ya existente en disco
+    fun procesarArchivoYaPreparado(
+        file: File,
+        nombreArchivo: String,
+        paginas: List<Int>?,
+        onResult: (String, TipoDoc) -> Unit,
+        onError: (String) -> Unit,
+        onProgress: (String) -> Unit
+    ) {
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val resultado = procesador.procesarFicheroExistente(file, nombreArchivo, paginas) { msg ->
+                    android.util.Log.d("GestorDocs", "Progreso: $msg")
+                    onProgress(msg)
+                }
+
+                val (tipoDetectado, textoExtraido) = resultado
+
+                if (textoExtraido.isBlank()) {
+                    onError("No se pudo extraer texto.")
+                    return@launch
+                }
+
+                onResult(textoExtraido, tipoDetectado)
+
+            } catch (e: Exception) {
+                onError("Error procesando archivo: ${e.localizedMessage}")
+            }
+        }
+    }
 }
